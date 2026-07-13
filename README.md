@@ -33,7 +33,7 @@ Other disc revisions can be opened in best-effort, read-only mode, but have not 
 
 ## Download
 
-Download `Mountainizer.App.exe` from the latest GitHub release. It is a self-contained Windows x64 executable: no installer, ZIP archive, or separate .NET installation is required.
+Download `Mountainizer.App.exe` from the [latest GitHub release](https://github.com/npiriou/mountainizer/releases/latest). It is a self-contained Windows x64 executable: no installer, ZIP archive, or separate .NET installation is required.
 
 ## Build and run
 
