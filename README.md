@@ -6,6 +6,8 @@ Mountainizer is an open-source, read-only **SSX 3 (PlayStation 2) world inspecto
 
 Mountainizer contains no SSX 3 assets. It never modifies or repacks the source image; you must supply your own legally obtained copy of the game.
 
+![Mountainizer displaying the Snow Jam course](docs/mountainizer-snow-jam.jpg)
+
 ## Current features
 
 - Imports and identifies the PS2 NTSC-U release (`SLUS_207.72`) from an ISO9660 image
