@@ -17,7 +17,7 @@ public sealed class FormatTests
         Assert.AreEqual(17, Ssx3CourseCatalog.Courses.Count);
         CollectionAssert.AreEqual(new[]
         {
-            "ARA1:Snow Jam:Race", "ASS1:Metro-City:Race", "BRA2:R&B:Slopestyle",
+            "ARA1:Snow Jam:Race", "ASS1:R&B:Slopestyle", "BRA2:Metro-City:Race",
             "ABA1:Crow's Nest:Big Air", "BHP1:Disfunktion:Super Pipe", "ABC1:Happiness:Backcountry",
             "CRA3:Ruthless Ridge:Race", "DRA4:Intimidator:Race", "DSS2:Style Mile:Slopestyle",
             "CBA2:Launch Time:Big Air", "CHP2:Schizophrenia:Super Pipe", "DBC2:Ruthless:Backcountry",
@@ -95,6 +95,23 @@ public sealed class FormatTests
     }
 
     [TestMethod]
+    public void PropClassification_SeparatesNonVisualGameplayProxiesFromVisibleWallsAndFences()
+    {
+        var source = new SourceByteRange("fixture", 0, 1, "synthetic", 0, SupportConfidence.Verified);
+        var properties = new Dictionary<string, object?>();
+        Assert.IsTrue(new PropInstance("mdl_ASS1_fencecollision_1000", source, Matrix4x4.Identity, 1, 1, properties).IsCollisionProxy);
+        Assert.IsTrue(new PropInstance("mdl_ARA1_fCollision_s1_1", source, Matrix4x4.Identity, 1, 1, properties).IsCollisionProxy);
+        Assert.IsFalse(new PropInstance("mdl_ASS1_noColliderockwall_0", source, Matrix4x4.Identity, 1, 1, properties).IsCollisionProxy);
+        Assert.IsFalse(new PropInstance("mdl_ASS1_fence_1001", source, Matrix4x4.Identity, 1, 1, properties).IsCollisionProxy);
+        Assert.IsTrue(new PropInstance("mdl_ARA1_Reset_Plane_1021", source, Matrix4x4.Identity, 1, 1, properties).IsNonVisualGameplayProxy);
+        Assert.IsTrue(new PropInstance("mdl_ARA1_bcvolume_1002", source, Matrix4x4.Identity, 1, 1, properties).IsNonVisualGameplayProxy);
+        Assert.IsTrue(new PropInstance("mdl_ARA1_RaceRideState_0", source, Matrix4x4.Identity, 1, 1, properties).IsNonVisualGameplayProxy);
+        Assert.IsTrue(new PropInstance("mdl_ARA1_startfireTrig_1000", source, Matrix4x4.Identity, 1, 1, properties).IsNonVisualGameplayProxy);
+        Assert.IsFalse(new PropInstance("mdl_ARA1_wallrocks_1031", source, Matrix4x4.Identity, 1, 1, properties).IsNonVisualGameplayProxy);
+        Assert.IsFalse(new PropInstance("mdl_A_con_bboard_group3_med_1001", source, Matrix4x4.Identity, 1, 1, properties).IsNonVisualGameplayProxy);
+    }
+
+    [TestMethod]
     public void CourseCameraPlacement_UsesNamedStartAndAimsTowardFinish()
     {
         var source = new SourceByteRange("fixture", 0, 1, "synthetic", 0, SupportConfidence.Verified);
@@ -134,13 +151,33 @@ public sealed class FormatTests
     {
         var camera = new InspectionCamera();
         var initialDistance = camera.Distance;
+        var initialTarget = camera.Target;
+        var initialYaw = camera.Yaw;
+        var initialPitch = camera.Pitch;
         camera.Zoom(1);
         Assert.IsTrue(camera.Distance < initialDistance);
         Assert.IsTrue(camera.Distance > initialDistance * 0.9f);
+        Assert.AreEqual(initialTarget, camera.Target);
+        Assert.AreEqual(initialYaw, camera.Yaw);
+        Assert.AreEqual(initialPitch, camera.Pitch);
 
         var position = camera.Position;
         camera.SetOrbitPivot(new Vector3(1000, 200, -500));
         Assert.IsTrue(Vector3.Distance(position, camera.Position) < 0.1f);
+    }
+
+    [TestMethod]
+    public void InspectionCamera_FlyKeepsUsefulSpeedNearAnOrbitPivotAndAfterRotation()
+    {
+        var camera = new InspectionCamera();
+        camera.SetPose(new Vector3(0, 1000, -10000), new Vector3(0, 1000, 0), 2500);
+        camera.SetOrbitPivot(camera.Position + camera.Forward);
+        Assert.IsTrue(camera.MoveSpeed >= 1250);
+
+        camera.Rotate(150, -40);
+        var position = camera.Position;
+        camera.Fly(0, 0, 1, 0.1f);
+        Assert.IsTrue(Vector3.Distance(position, camera.Position) >= 124);
     }
 
     private static byte[] MakeBig()

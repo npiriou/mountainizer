@@ -8,12 +8,13 @@ namespace Mountainizer.Rendering;
 
 public sealed class InspectionCamera
 {
+    private float _navigationScale = 5_000;
     public const float FieldOfView = 0.72f;
     public Vector3 Target { get; private set; }
     public float Distance { get; private set; } = 50_000;
     public float Yaw { get; private set; } = -0.8f;
     public float Pitch { get; private set; } = -0.65f;
-    public float MoveSpeed => Math.Max(1, Distance * 0.015f);
+    public float MoveSpeed => Math.Max(250, Math.Max(Distance * 0.3f, _navigationScale * 0.5f));
 
     public Vector3 Position => Target - Forward * Distance;
     public Vector3 Forward => Vector3.Normalize(new(MathF.Cos(Pitch) * MathF.Cos(Yaw), MathF.Sin(Pitch), MathF.Cos(Pitch) * MathF.Sin(Yaw)));
@@ -22,7 +23,7 @@ public sealed class InspectionCamera
 
     public void Frame(SceneBounds bounds)
     {
-        Target = bounds.Center; Distance = Math.Max(bounds.Radius * 2.9f, 100); Yaw = -0.8f; Pitch = -0.65f;
+        Target = bounds.Center; Distance = Math.Max(bounds.Radius * 2.9f, 100); _navigationScale = Math.Max(bounds.Radius, 500); Yaw = -0.8f; Pitch = -0.65f;
     }
     public void SetOrbitPivot(Vector3 pivot)
     {
@@ -36,7 +37,7 @@ public sealed class InspectionCamera
         Pitch = Math.Clamp(MathF.Asin(direction.Y), -1.52f, 1.52f);
         Yaw = MathF.Atan2(direction.Z, direction.X);
     }
-    public void SetPose(Vector3 position, Vector3 target)
+    public void SetPose(Vector3 position, Vector3 target, float navigationScale = 0)
     {
         var direction = target - position;
         var distance = direction.Length();
@@ -44,6 +45,7 @@ public sealed class InspectionCamera
         direction /= distance;
         Target = target;
         Distance = distance;
+        _navigationScale = navigationScale > 0 ? Math.Max(navigationScale, 500) : Math.Max(distance * 0.2f, 500);
         Pitch = Math.Clamp(MathF.Asin(direction.Y), -1.52f, 1.52f);
         Yaw = MathF.Atan2(direction.Z, direction.X);
     }
@@ -54,7 +56,12 @@ public sealed class InspectionCamera
         Target += (-Right * dx + Up * dy) * unitsPerPixel;
     }
     public void Zoom(float wheelSteps, float speed = 1) => Distance = Math.Max(0.25f, Distance * MathF.Exp(-wheelSteps * 0.08f * speed));
-    public void Fly(float right, float up, float forward, float multiplier = 1) => Target += (Right * right + Vector3.UnitY * up + Forward * forward) * MoveSpeed * multiplier;
+    public void Fly(float right, float up, float forward, float elapsedSeconds, float multiplier = 1)
+    {
+        var direction = Right * right + Vector3.UnitY * up + Forward * forward;
+        if (direction.LengthSquared() > 1) direction = Vector3.Normalize(direction);
+        Target += direction * MoveSpeed * Math.Clamp(elapsedSeconds, 0, 0.1f) * multiplier;
+    }
     public Matrix4 View => Matrix4.LookAt(ToTk(Position), ToTk(Target), ToTk(Up));
     public Matrix4 Projection(float aspect) => Matrix4.CreatePerspectiveFieldOfView(FieldOfView, Math.Max(aspect, 0.01f), Math.Max(0.05f, Distance / 20000f), Math.Max(1_000_000f, Distance * 20));
     private static Vector3Tk ToTk(Vector3 x) => new(x.X, x.Y, x.Z);
@@ -195,12 +202,12 @@ public sealed class SceneRenderer : IDisposable
     private MountainizerScene? _pendingScene;
     private MountainizerScene? _scene;
     private int _program, _vao, _vbo, _ibo, _gridVao, _gridVbo, _propVao, _propVbo, _modelVao, _modelVbo, _modelIbo, _debugVao, _debugVbo, _axisVao, _axisVbo;
-    private int _indexCount, _gridVertexCount, _propCount, _splineVertexCount, _curtainVertexCount, _triggerVertexCount;
+    private int _indexCount, _gridVertexCount, _propCount, _collisionPropCount, _splineVertexCount, _curtainVertexCount, _triggerVertexCount;
     private readonly List<(int Offset, int Count)> _patchRanges = [];
     private readonly List<(int Offset, int Count, int TextureRid)> _drawRanges = [];
     private readonly Dictionary<int, int> _textures = [];
     private readonly Dictionary<long, List<(int Offset, int Count, int TextureRid)>> _modelRanges = [];
-    private readonly List<(int Offset, int Count, int TextureRid, Matrix4 Transform, int PropIndex)> _modelInstances = [];
+    private readonly List<(int Offset, int Count, int TextureRid, Matrix4 Transform, int PropIndex, bool GameplayProxy)> _modelInstances = [];
     private readonly List<(ISceneItem Item, SceneBounds Bounds)> _pickTargets = [];
     private int _isolatedPropIndex = -1;
     private int _selectedPropIndex = -1;
@@ -211,6 +218,7 @@ public sealed class SceneRenderer : IDisposable
     public bool ShowGrid { get; set; } = true;
     public bool ShowTerrain { get; set; } = true;
     public bool ShowProps { get; set; } = true;
+    public bool ShowGameplayProxies { get; set; }
     public bool ShowSplines { get; set; }
     public bool ShowTriggers { get; set; }
     public bool ShowVisibilityCurtains { get; set; }
@@ -221,7 +229,7 @@ public sealed class SceneRenderer : IDisposable
     public bool FrameCourseStart(MountainizerScene scene, string courseCode)
     {
         if (!CourseCameraPlacement.TryFind(scene, courseCode, out var pose)) return false;
-        Camera.SetPose(pose.Position, pose.Target);
+        Camera.SetPose(pose.Position, pose.Target, pose.ReferenceScale);
         return true;
     }
     public void SelectItem(MountainizerScene scene, ISceneItem? item)
@@ -258,7 +266,7 @@ public sealed class SceneRenderer : IDisposable
             { item = target.Item; distance = hitDistance; }
         return item is not null;
 
-        bool IsVisible(ISceneItem item) => item switch { TerrainPatch => ShowTerrain, PropInstance => ShowProps,
+        bool IsVisible(ISceneItem item) => item switch { TerrainPatch => ShowTerrain, PropInstance prop => prop.IsNonVisualGameplayProxy ? ShowGameplayProxies : ShowProps,
             Spline => ShowSplines, TriggerVolume => ShowTriggers, VisibilityCurtain => ShowVisibilityCurtains, _ => false };
     }
     public bool FrameProp(MountainizerScene scene, PropInstance prop)
@@ -296,12 +304,12 @@ public sealed class SceneRenderer : IDisposable
             else GL.Uniform3(GL.GetUniformLocation(_program, "uColor"), 0.48f, 0.58f, 0.68f);
             GL.DrawElements(PrimitiveType.Triangles, range.Count, DrawElementsType.UnsignedInt, range.Offset * sizeof(uint));
         }
-        if (ShowProps && _modelInstances.Count > 0 && !Wireframe)
+        if (_modelInstances.Count > 0 && !Wireframe)
         {
             GL.Disable(EnableCap.CullFace); GL.BindVertexArray(_modelVao);
             foreach (var instance in _modelInstances)
             {
-                if (_isolatedPropIndex >= 0 && instance.PropIndex != _isolatedPropIndex) continue;
+                if (!IsPropVisible(instance.PropIndex)) continue;
                 var textured = _textures.TryGetValue(instance.TextureRid, out var texture);
                 GL.Uniform1(GL.GetUniformLocation(_program, "uUseTexture"), textured ? 1 : 0);
                 GL.Uniform1(GL.GetUniformLocation(_program, "uAlphaTest"), textured ? 1 : 0);
@@ -312,7 +320,7 @@ public sealed class SceneRenderer : IDisposable
             }
             SetModel(Matrix4.Identity); GL.Uniform1(GL.GetUniformLocation(_program, "uAlphaTest"), 0);
         }
-        if (_selectedPropIndex >= 0)
+        if (_selectedPropIndex >= 0 && IsPropVisible(_selectedPropIndex))
         {
             GL.Disable(EnableCap.CullFace); GL.BindVertexArray(_modelVao); GL.PolygonMode(TriangleFace.FrontAndBack, PolygonMode.Line);
             GL.Uniform1(GL.GetUniformLocation(_program, "uUseTexture"), 0); GL.Uniform1(GL.GetUniformLocation(_program, "uAlphaTest"), 0);
@@ -321,11 +329,21 @@ public sealed class SceneRenderer : IDisposable
             { SetModel(instance.Transform); GL.DrawElements(PrimitiveType.Triangles, instance.Count, DrawElementsType.UnsignedInt, instance.Offset * sizeof(uint)); }
             SetModel(Matrix4.Identity); GL.LineWidth(1f);
         }
-        if (ShowProps && _propCount > 0 && !Wireframe)
+        if ((ShowProps && _propCount > 0 || ShowGameplayProxies && _collisionPropCount > 0) && !Wireframe)
         {
             GL.BindVertexArray(_propVao); GL.Uniform1(GL.GetUniformLocation(_program, "uUseTexture"), 0);
-            GL.Uniform3(GL.GetUniformLocation(_program, "uColor"), 0.95f, 0.52f, 0.15f); GL.PointSize(2f);
-            GL.DrawArrays(PrimitiveType.Points, 0, _propCount); GL.PointSize(1f); GL.BindVertexArray(_vao);
+            GL.PointSize(2f);
+            if (ShowProps && _propCount > 0)
+            {
+                GL.Uniform3(GL.GetUniformLocation(_program, "uColor"), 0.95f, 0.52f, 0.15f);
+                GL.DrawArrays(PrimitiveType.Points, 0, _propCount);
+            }
+            if (ShowGameplayProxies && _collisionPropCount > 0)
+            {
+                GL.Uniform3(GL.GetUniformLocation(_program, "uColor"), 1f, 0.25f, 0.05f);
+                GL.DrawArrays(PrimitiveType.Points, _propCount, _collisionPropCount);
+            }
+            GL.PointSize(1f); GL.BindVertexArray(_vao);
         }
         if ((uint)SelectedPatch < (uint)_patchRanges.Count)
         {
@@ -387,8 +405,10 @@ public sealed class SceneRenderer : IDisposable
         GL.VertexAttribPointer(2, 2, VertexAttribPointerType.Float, false, 8 * sizeof(float), 6 * sizeof(float)); GL.EnableVertexAttribArray(2);
         var decodedModelIds = scene.Models.Where(x => x.Mesh is not null).Select(x => ResourceKey(Convert.ToInt32(x.Properties["TrackId"]), Convert.ToInt32(x.Properties["ResourceId"]))).ToHashSet();
         var unresolvedProps = scene.Props.Where(x => !decodedModelIds.Contains(ResourceKey(x.ModelTrackId, x.ModelResourceId))).ToArray();
-        var propPositions = unresolvedProps.SelectMany(x => new[] { x.Transform.M41, x.Transform.M42, x.Transform.M43 }).ToArray();
-        _propCount = unresolvedProps.Length; GL.BindVertexArray(_propVao); GL.BindBuffer(BufferTarget.ArrayBuffer, _propVbo);
+        var visibleUnresolvedProps = unresolvedProps.Where(x => !x.IsNonVisualGameplayProxy).ToArray();
+        var collisionUnresolvedProps = unresolvedProps.Where(x => x.IsNonVisualGameplayProxy).ToArray();
+        var propPositions = visibleUnresolvedProps.Concat(collisionUnresolvedProps).SelectMany(x => new[] { x.Transform.M41, x.Transform.M42, x.Transform.M43 }).ToArray();
+        _propCount = visibleUnresolvedProps.Length; _collisionPropCount = collisionUnresolvedProps.Length; GL.BindVertexArray(_propVao); GL.BindBuffer(BufferTarget.ArrayBuffer, _propVbo);
         GL.BufferData(BufferTarget.ArrayBuffer, propPositions.Length * sizeof(float), propPositions, BufferUsageHint.StaticDraw);
         GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, 3 * sizeof(float), 0); GL.EnableVertexAttribArray(0);
         GL.DisableVertexAttribArray(1); GL.VertexAttrib3(1, 0f, 1f, 0f); GL.DisableVertexAttribArray(2); GL.VertexAttrib2(2, 0f, 0f);
@@ -465,7 +485,14 @@ public sealed class SceneRenderer : IDisposable
         GL.VertexAttribPointer(2, 2, VertexAttribPointerType.Float, false, 8 * sizeof(float), 6 * sizeof(float)); GL.EnableVertexAttribArray(2);
         foreach (var (prop, propIndex) in scene.Props.Select((value, index) => (value, index)))
             if (_modelRanges.TryGetValue(ResourceKey(prop.ModelTrackId, prop.ModelResourceId), out var ranges))
-                foreach (var range in ranges) _modelInstances.Add((range.Offset, range.Count, range.TextureRid, ToTk(prop.Transform), propIndex));
+                foreach (var range in ranges) _modelInstances.Add((range.Offset, range.Count, range.TextureRid, ToTk(prop.Transform), propIndex, prop.IsNonVisualGameplayProxy));
+    }
+
+    private bool IsPropVisible(int propIndex)
+    {
+        if (_isolatedPropIndex >= 0) return propIndex == _isolatedPropIndex;
+        if (_scene is null || (uint)propIndex >= (uint)_scene.Props.Count) return false;
+        return _scene.Props[propIndex].IsNonVisualGameplayProxy ? ShowGameplayProxies : ShowProps;
     }
 
     private void BuildPickTargets(MountainizerScene scene)

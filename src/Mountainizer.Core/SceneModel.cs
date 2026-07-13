@@ -49,7 +49,17 @@ public sealed record TerrainPatch(
     IReadOnlyDictionary<string, object?> Properties) : ISceneItem;
 
 public sealed record PropInstance(string Name, SourceByteRange Source, Matrix4x4 Transform,
-    int ModelTrackId, int ModelResourceId, IReadOnlyDictionary<string, object?> Properties) : ISceneItem;
+    int ModelTrackId, int ModelResourceId, IReadOnlyDictionary<string, object?> Properties) : ISceneItem
+{
+    public bool IsCollisionProxy => Name.Contains("collision", StringComparison.OrdinalIgnoreCase);
+    public bool IsNonVisualGameplayProxy => IsCollisionProxy
+        || Name.Contains("reset_plane", StringComparison.OrdinalIgnoreCase)
+        || Name.Contains("resetplane", StringComparison.OrdinalIgnoreCase)
+        || Name.Contains("volume", StringComparison.OrdinalIgnoreCase)
+        || Name.Contains("ridestate", StringComparison.OrdinalIgnoreCase)
+        || Name.Contains("heightplane", StringComparison.OrdinalIgnoreCase)
+        || Name.Contains("trig", StringComparison.OrdinalIgnoreCase);
+}
 public sealed record ModelSubmesh(MeshData Mesh, int MaterialTrackId, int MaterialResourceId);
 public sealed record ModelAsset(string Name, SourceByteRange Source, MeshData? Mesh, IReadOnlyList<ModelSubmesh> Submeshes,
     IReadOnlyDictionary<string, object?> Properties) : ISceneItem;

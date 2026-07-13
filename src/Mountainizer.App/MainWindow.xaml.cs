@@ -123,7 +123,9 @@ public partial class MainWindow : Window
         SceneTree.Items.Clear(); if (_scene is null) return; var filter = SearchBox.Text.Trim();
         var root = Item($"Level — {_scene.Name}", null);
         AddCategory(root, "Terrain", _scene.Terrain.Cast<ISceneItem>(), filter);
-        AddCategory(root, "Props", _scene.Props.Cast<ISceneItem>(), filter); AddCategory(root, "Splines", _scene.Splines.Cast<ISceneItem>(), filter);
+        AddCategory(root, "Props", _scene.Props.Where(x => !x.IsNonVisualGameplayProxy).Cast<ISceneItem>(), filter);
+        AddCategory(root, "Invisible gameplay walls", _scene.Props.Where(x => x.IsNonVisualGameplayProxy).Cast<ISceneItem>(), filter);
+        AddCategory(root, "Splines", _scene.Splines.Cast<ISceneItem>(), filter);
         AddCategory(root, "Triggers", _scene.Triggers.Cast<ISceneItem>(), filter); AddCategory(root, "Visibility", _scene.VisibilityCurtains.Cast<ISceneItem>(), filter);
         AddCategory(root, "Models", _scene.Models.Cast<ISceneItem>(), filter); AddCategory(root, "Materials", _scene.Materials.Cast<ISceneItem>(), filter); AddCategory(root, "Textures", _scene.Textures.Cast<ISceneItem>(), filter);
         AddCategory(root, "Unknown Sections", _scene.UnknownSections.Cast<ISceneItem>(), filter, 500);
@@ -173,7 +175,21 @@ public partial class MainWindow : Window
         if (_scene is not null && SceneTree.SelectedItem is TreeViewItem { Tag: PropInstance prop } && _renderer.FrameProp(_scene, prop)) e.Handled = true;
     }
     private void SearchBox_TextChanged(object sender, TextChangedEventArgs e) => BuildHierarchy();
-    private void GlViewport_Render(TimeSpan delta) => _renderer.Render((int)GlViewport.ActualWidth, (int)GlViewport.ActualHeight);
+    private void GlViewport_Render(TimeSpan delta)
+    {
+        UpdateNavigation(delta);
+        _renderer.Render((int)GlViewport.ActualWidth, (int)GlViewport.ActualHeight);
+    }
+    private void UpdateNavigation(TimeSpan delta)
+    {
+        if (!GlViewport.IsKeyboardFocusWithin && _dragButton is null) return;
+        var right = (Keyboard.IsKeyDown(Key.D) ? 1f : 0f) - (Keyboard.IsKeyDown(Key.A) ? 1f : 0f);
+        var up = (Keyboard.IsKeyDown(Key.E) ? 1f : 0f) - (Keyboard.IsKeyDown(Key.Q) ? 1f : 0f);
+        var forward = (Keyboard.IsKeyDown(Key.W) ? 1f : 0f) - (Keyboard.IsKeyDown(Key.S) ? 1f : 0f);
+        if (right == 0 && up == 0 && forward == 0) return;
+        var fast = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? 4f : 1f;
+        _renderer.Camera.Fly(right, up, forward, (float)delta.TotalSeconds, fast);
+    }
     private void Viewport_MouseDown(object sender, MouseButtonEventArgs e)
     {
         var position = e.GetPosition(GlViewport); GlViewport.Focus();
@@ -190,16 +206,14 @@ public partial class MainWindow : Window
     private void Viewport_MouseMove(object sender, MouseEventArgs e) { if (_dragButton is null) return; var now = e.GetPosition(GlViewport); var dx = (float)(now.X - _lastMouse.X); var dy = (float)(now.Y - _lastMouse.Y); if (_dragButton == MouseButton.Right) _renderer.Camera.Rotate(dx, dy); else if (_dragButton == MouseButton.Middle) _renderer.Camera.Pan(dx, dy, (float)GlViewport.ActualHeight); _lastMouse = now; }
     private void Viewport_MouseWheel(object sender, MouseWheelEventArgs e)
     {
-        var position = e.GetPosition(GlViewport);
-        _renderer.TrySetOrbitPivot((float)position.X, (float)position.Y, (int)GlViewport.ActualWidth, (int)GlViewport.ActualHeight);
         var speed = Keyboard.Modifiers.HasFlag(ModifierKeys.Control) ? 0.3f : Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? 2f : 1f;
         _renderer.Camera.Zoom(e.Delta / 120f, speed);
         e.Handled = true;
     }
     private void Window_KeyDown(object sender, KeyEventArgs e)
     {
-        var fast = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? 4f : 1f;
-        switch (e.Key) { case Key.W: _renderer.Camera.Fly(0, 0, 1, fast); break; case Key.S: _renderer.Camera.Fly(0, 0, -1, fast); break; case Key.A: _renderer.Camera.Fly(-1, 0, 0, fast); break; case Key.D: _renderer.Camera.Fly(1, 0, 0, fast); break; case Key.Q: _renderer.Camera.Fly(0, -1, 0, fast); break; case Key.E: _renderer.Camera.Fly(0, 1, 0, fast); break; case Key.F: if (_renderer.IsIsolated || _selectedItem is null || !_renderer.FrameItem(_selectedItem)) FrameScene(); break; case Key.Escape: ClearSelection(); break; }
+        if (e.IsRepeat) return;
+        switch (e.Key) { case Key.F: if (_renderer.IsIsolated || _selectedItem is null || !_renderer.FrameItem(_selectedItem)) FrameScene(); e.Handled = true; break; case Key.Escape: ClearSelection(); e.Handled = true; break; }
     }
     private void ClearSelection()
     {
@@ -227,12 +241,13 @@ public partial class MainWindow : Window
     private void Grid_Click(object sender, RoutedEventArgs e) => _renderer.ShowGrid = ((MenuItem)sender).IsChecked;
     private void Terrain_Click(object sender, RoutedEventArgs e) => _renderer.ShowTerrain = ((MenuItem)sender).IsChecked;
     private void Props_Click(object sender, RoutedEventArgs e) => _renderer.ShowProps = ((MenuItem)sender).IsChecked;
+    private void GameplayProxies_Click(object sender, RoutedEventArgs e) => _renderer.ShowGameplayProxies = ((MenuItem)sender).IsChecked;
     private void Splines_Click(object sender, RoutedEventArgs e) => _renderer.ShowSplines = ((MenuItem)sender).IsChecked;
     private void Triggers_Click(object sender, RoutedEventArgs e) => _renderer.ShowTriggers = ((MenuItem)sender).IsChecked;
     private void Visibility_Click(object sender, RoutedEventArgs e) => _renderer.ShowVisibilityCurtains = ((MenuItem)sender).IsChecked;
     private void ExportObj_Click(object sender, RoutedEventArgs e) { if (_scene is null) return; var dialog = new SaveFileDialog { Filter = "Wavefront OBJ (*.obj)|*.obj", FileName = _scene.Name + ".obj" }; if (dialog.ShowDialog(this) == true) { ObjExporter.ExportScene(_scene, dialog.FileName); Log("Information", $"Exported terrain and decoded props to {dialog.FileName}"); } }
     private void ExportDiagnostics_Click(object sender, RoutedEventArgs e) { var dialog = new SaveFileDialog { Filter = "JSON (*.json)|*.json", FileName = "mountainizer-diagnostics.json" }; if (dialog.ShowDialog(this) == true) File.WriteAllText(dialog.FileName, System.Text.Json.JsonSerializer.Serialize(_diagnostics, DiagnosticBag.JsonOptions)); }
-    private void Controls_Click(object sender, RoutedEventArgs e) => MessageBox.Show(this, "Left mouse: select visible terrain or prop\nRight mouse: orbit around the surface under the cursor\nMiddle mouse: pan\nWheel: adaptive zoom toward the cursor\nCtrl + wheel: precision zoom\nShift + wheel: fast zoom\nWASD + Q/E: fly\nShift: faster\nF: frame selected item (or leave prop isolation)\nEscape: clear selection", "Viewport controls");
+    private void Controls_Click(object sender, RoutedEventArgs e) => MessageBox.Show(this, "Left mouse: select visible terrain or prop\nRight mouse: orbit around the surface under the cursor\nMiddle mouse: pan\nWheel: zoom without changing view direction\nCtrl + wheel: precision zoom\nShift + wheel: fast zoom\nWASD + Q/E: continuous fly\nShift: faster\nF: frame selected item (or leave prop isolation)\nEscape: clear selection", "Viewport controls");
     private void Exit_Click(object sender, RoutedEventArgs e) => Close();
     private void AddDiagnostics(DiagnosticBag bag) { foreach (var item in bag.Items) _diagnostics.Add(item); }
     private void SetBusy(bool busy, string text) { ProgressText.Text = text; LevelPicker.IsEnabled = !busy; }

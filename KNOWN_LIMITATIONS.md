@@ -6,7 +6,7 @@
 - Terrain diffuse materials are rendered. Lightmaps, several material flags, and some PS2 texture formats remain incomplete.
 - Splines and visibility curtains are decoded as sampled debug curves. Their gameplay roles and remaining fields are not fully named.
 - Type-17 camera-trigger bounds are rendered as debug boxes. Trigger actions, priorities, and the other arrays in the trigger table remain unknown. Type-13 sound-trigger payloads remain source-aware unknown resources.
-- Collision, AIP/path graphs, particles, lights, scripts, mission data, audio banks, and avalanche animation are preserved and reported but not rendered.
+- Named non-visual gameplay props (reset planes, volumes, trigger meshes, ride-state meshes, and collision walls) are recognized, hidden by default, and available through a dedicated debug toggle. Dedicated collision data, AIP/path graphs, particles, lights, scripts, mission data, audio banks, and avalanche animation are preserved and reported but not rendered.
 - The coordinate conversion boundary maps the observed SSX 3 Z-up data into Mountainizer's Y-up scene space as `(x, y, z) → (x, z, -y)`. Units, canonical winding, and handedness still need wider revision/platform validation.
 - Viewport picking uses decoded object bounds and may need a second click in densely overlapping geometry. Detachable/persistent docking is not implemented.
 - OBJ export includes terrain and decoded prop geometry, but does not emit MTL files or textures. glTF is not implemented.

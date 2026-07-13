@@ -20,8 +20,8 @@ public static class Ssx3CourseCatalog
     public static IReadOnlyList<Ssx3CourseDefinition> Courses { get; } =
     [
         Course("ARA1", "Snow Jam", 1, "Race", "A", "A_ARA1", "ARA1", "ARA1_B", "B", "ASKY", "BSKY"),
-        Course("ASS1", "Metro-City", 1, "Race", "A", "A_ASS1", "ASS1", "ASKY"),
-        Course("BRA2", "R&B", 1, "Slopestyle", "B", "B_BRA2", "BRA2", "BSKY"),
+        Course("ASS1", "R&B", 1, "Slopestyle", "A", "A_ASS1", "ASS1", "ASKY"),
+        Course("BRA2", "Metro-City", 1, "Race", "B", "B_BRA2", "BRA2", "BSKY"),
         Course("ABA1", "Crow's Nest", 1, "Big Air", "A", "A_ABA1", "ABA1", "ASKY"),
         Course("BHP1", "Disfunktion", 1, "Super Pipe", "B", "B_BHP1", "BHP1", "BSKY"),
         Course("ABC1", "Happiness", 1, "Backcountry", "ABC1", "ABC1_A", "A", "ASKY"),

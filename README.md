@@ -16,6 +16,7 @@ Mountainizer contains no SSX 3 assets. It never modifies or repacks the source i
 - Provides surface-anchored orbit, adaptive cursor-directed zoom, pan, and fly controls
 - Browses the scene hierarchy, properties, source offsets, materials, and decoded textures
 - Visualizes splines, camera triggers, and visibility curtains as optional debug geometry
+- Hides non-visual reset planes, gameplay volumes, triggers, ride-state meshes, and collision walls by default, with a dedicated debug toggle
 - Exports tessellated terrain and decoded prop instances to OBJ
 - Preserves unsupported resources and reports structured parsing diagnostics
 - Includes a CLI for identification, extraction, inspection, texture dumping, and export
@@ -70,7 +71,7 @@ Mountainizer creates a reusable local project cache. The source ISO remains read
 | Left mouse | Select visible terrain, props, or enabled debug structures |
 | Right mouse drag | Orbit around the track surface beneath the cursor |
 | Middle mouse drag | Pan with distance-aware sensitivity |
-| Mouse wheel | Adaptive zoom toward the surface beneath the cursor |
+| Mouse wheel | Zoom without changing the viewing direction |
 | Ctrl + wheel | Precision zoom |
 | Shift + wheel | Fast zoom |
 | W/A/S/D | Fly forward, left, backward, and right |
@@ -87,8 +88,8 @@ Choose **View → Frame scene** to frame the complete course. Terrain and props 
 | Peak 1 | Peak 2 | Peak 3 |
 | --- | --- | --- |
 | Snow Jam — Race (`ARA1`) | Ruthless Ridge — Race (`CRA3`) | Gravitude — Race (`ERA5`) |
-| Metro-City — Race (`ASS1`) | Intimidator — Race (`DRA4`) | Kick Doubt — Slopestyle (`ESS3`) |
-| R&B — Slopestyle (`BRA2`) | Style Mile — Slopestyle (`DSS2`) | Much-2-Much — Big Air (`EBA3`) |
+| R&B — Slopestyle (`ASS1`) | Intimidator — Race (`DRA4`) | Kick Doubt — Slopestyle (`ESS3`) |
+| Metro-City — Race (`BRA2`) | Style Mile — Slopestyle (`DSS2`) | Much-2-Much — Big Air (`EBA3`) |
 | Crow's Nest — Big Air (`ABA1`) | Launch Time — Big Air (`CBA2`) | Perpendiculous — Super Pipe (`EHP3`) |
 | Disfunktion — Super Pipe (`BHP1`) | Schizophrenia — Super Pipe (`CHP2`) | The Throne — Backcountry (`EBC3`) |
 | Happiness — Backcountry (`ABC1`) | Ruthless — Backcountry (`DBC2`) | |
