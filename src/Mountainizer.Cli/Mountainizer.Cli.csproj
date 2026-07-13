@@ -1,0 +1,17 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Mountainizer.Core\Mountainizer.Core.csproj" />
+    <ProjectReference Include="..\Mountainizer.Formats\Mountainizer.Formats.csproj" />
+    <ProjectReference Include="..\Mountainizer.Iso\Mountainizer.Iso.csproj" />
+    <ProjectReference Include="..\Mountainizer.Export\Mountainizer.Export.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

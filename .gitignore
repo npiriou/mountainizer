@@ -1,0 +1,41 @@
+# .NET / IDE
+bin/
+obj/
+.vs/
+.vscode/
+.codex-remote-attachments/
+*.user
+*.suo
+TestResults/
+artifacts/
+publish/
+
+# Copyrighted or user-local game data — never commit
+*.iso
+*.ISO
+*.bin
+*.cue
+*.zip
+*.7z
+*.rar
+*.big
+*.BIG
+*.ssb
+*.sdb
+*.phm
+*.psm
+*.ssh
+*.mpf
+MountainizerProjects/
+projects/
+extracted/
+cache/
+logs/
+samples/local/
+project.json
+
+# Generated exports
+*.obj
+*.mtl
+*.gltf
+*.glb
