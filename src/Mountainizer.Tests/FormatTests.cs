@@ -95,6 +95,14 @@ public sealed class FormatTests
     }
 
     [TestMethod]
+    public void TextureCoordinates_KeepMdrSignsUprightWithoutChangingTerrainRendering()
+    {
+        var uv = new Vector2(0.25f, 0.75f);
+        Assert.AreEqual(uv, TextureCoordinateConvention.ModelToOpenGl(uv));
+        Assert.AreEqual(new Vector2(0.25f, 0.25f), TextureCoordinateConvention.TerrainToOpenGl(uv));
+    }
+
+    [TestMethod]
     public void PropClassification_SeparatesNonVisualGameplayProxiesFromVisibleWallsAndFences()
     {
         var source = new SourceByteRange("fixture", 0, 1, "synthetic", 0, SupportConfidence.Verified);

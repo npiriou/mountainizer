@@ -6,6 +6,12 @@ using Vector3Tk = OpenTK.Mathematics.Vector3;
 
 namespace Mountainizer.Rendering;
 
+public static class TextureCoordinateConvention
+{
+    public static Vector2 TerrainToOpenGl(Vector2 uv) => new(uv.X, 1f - uv.Y);
+    public static Vector2 ModelToOpenGl(Vector2 uv) => uv;
+}
+
 public sealed class InspectionCamera
 {
     private float _navigationScale = 5_000;
@@ -285,12 +291,12 @@ public sealed class SceneRenderer : IDisposable
         GL.Viewport(0, 0, Math.Max(width, 1), Math.Max(height, 1));
         GL.ClearColor(0.035f, 0.045f, 0.06f, 1); GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
         GL.Enable(EnableCap.DepthTest);
-        if (BackfaceCulling) { GL.Enable(EnableCap.CullFace); GL.CullFace(TriangleFace.Back); } else GL.Disable(EnableCap.CullFace);
+        ApplyBackfaceCulling();
         GL.UseProgram(_program);
         SetMatrices(width / (float)Math.Max(1, height));
         SetModel(Matrix4.Identity);
         GL.Uniform1(GL.GetUniformLocation(_program, "uAlphaTest"), 0);
-        if (ShowGrid) DrawGrid();
+        if (ShowGrid) { DrawGrid(); ApplyBackfaceCulling(); }
         GL.BindVertexArray(_vao); GL.ActiveTexture(TextureUnit.Texture0);
         GL.Uniform1(GL.GetUniformLocation(_program, "uTexture"), 0);
         GL.PolygonMode(TriangleFace.FrontAndBack, Wireframe ? PolygonMode.Line : PolygonMode.Fill);
@@ -306,7 +312,7 @@ public sealed class SceneRenderer : IDisposable
         }
         if (_modelInstances.Count > 0 && !Wireframe)
         {
-            GL.Disable(EnableCap.CullFace); GL.BindVertexArray(_modelVao);
+            ApplyBackfaceCulling(); GL.BindVertexArray(_modelVao);
             foreach (var instance in _modelInstances)
             {
                 if (!IsPropVisible(instance.PropIndex)) continue;
@@ -385,7 +391,10 @@ public sealed class SceneRenderer : IDisposable
         {
             foreach (var (position, i) in patch.Mesh.Positions.Select((x, i) => (x, i)))
             {
-                var normal = patch.Mesh.Normals[i]; var uv = patch.Mesh.TextureCoordinates[i];
+                var normal = patch.Mesh.Normals[i]; var uv = TextureCoordinateConvention.TerrainToOpenGl(patch.Mesh.TextureCoordinates[i]);
+                // Terrain UVs use the opposite vertical convention from MDR model UVs.
+                // Keep the established terrain appearance while allowing signs and
+                // other prop atlases to use their stored coordinates verbatim.
                 vertexFloats.AddRange([position.X, position.Y, position.Z, normal.X, normal.Y, normal.Z, uv.X, uv.Y]);
             }
             var offset = indices.Count; indices.AddRange(patch.Mesh.Indices.Select(x => x + vertexBase));
@@ -468,7 +477,7 @@ public sealed class SceneRenderer : IDisposable
                 var mesh = submesh.Mesh; var offset = indices.Count;
                 for (var i = 0; i < mesh.Positions.Count; i++)
                 {
-                    var p = mesh.Positions[i]; var n = mesh.Normals[i]; var uv = mesh.TextureCoordinates[i];
+                    var p = mesh.Positions[i]; var n = mesh.Normals[i]; var uv = TextureCoordinateConvention.ModelToOpenGl(mesh.TextureCoordinates[i]);
                     vertices.AddRange([p.X, p.Y, p.Z, n.X, n.Y, n.Z, uv.X, uv.Y]);
                 }
                 var materialKey = ResourceKey(submesh.MaterialTrackId, submesh.MaterialResourceId);
@@ -571,6 +580,11 @@ public sealed class SceneRenderer : IDisposable
         GL.Viewport(0, 0, Math.Max(width, 1), Math.Max(height, 1)); SetMatrices(width / (float)Math.Max(1, height));
     }
     private void DrawGrid() { GL.Disable(EnableCap.CullFace); GL.BindVertexArray(_gridVao); GL.Uniform1(GL.GetUniformLocation(_program, "uUseTexture"), 0); GL.Uniform3(GL.GetUniformLocation(_program, "uColor"), 0.18f, 0.22f, 0.27f); GL.DrawArrays(PrimitiveType.Lines, 0, _gridVertexCount); }
+    private void ApplyBackfaceCulling()
+    {
+        if (BackfaceCulling) { GL.Enable(EnableCap.CullFace); GL.CullFace(TriangleFace.Back); }
+        else GL.Disable(EnableCap.CullFace);
+    }
     private void SetMatrices(float aspect) { var view = Camera.View; var projection = Camera.Projection(aspect); GL.UniformMatrix4(GL.GetUniformLocation(_program, "uView"), false, ref view); GL.UniformMatrix4(GL.GetUniformLocation(_program, "uProjection"), false, ref projection); }
     private void SetModel(Matrix4 model) => GL.UniformMatrix4(GL.GetUniformLocation(_program, "uModel"), false, ref model);
     private static Matrix4 ToTk(Matrix4x4 m) => new(m.M11, m.M12, m.M13, m.M14, m.M21, m.M22, m.M23, m.M24,
@@ -587,7 +601,7 @@ public sealed class SceneRenderer : IDisposable
 #version 330 core
 layout(location=0) in vec3 aPosition; layout(location=1) in vec3 aNormal; layout(location=2) in vec2 aTexCoord;
 uniform mat4 uView; uniform mat4 uProjection; uniform mat4 uModel; out vec3 vNormal; out vec2 vTexCoord;
-void main(){ vNormal=mat3(uModel)*aNormal; vTexCoord=vec2(aTexCoord.x,1.0-aTexCoord.y); gl_Position=uProjection*uView*uModel*vec4(aPosition,1.0); }
+void main(){ vNormal=mat3(uModel)*aNormal; vTexCoord=aTexCoord; gl_Position=uProjection*uView*uModel*vec4(aPosition,1.0); }
 """;
     private const string FragmentShader = """
 #version 330 core
