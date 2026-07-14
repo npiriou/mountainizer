@@ -10,9 +10,9 @@ The local regression audit opens all 17 course assemblies. Every course contains
 
 ## Rendered and exported
 
-Terrain difference coefficients are converted to bicubic control points, tessellated, normal-generated, UV-mapped, and textured. MDR submeshes render at decoded instance transforms with resolved material textures, including trees, rails, ramps, rocks, signs, icicles, groomers, and other obstacles. Splines, camera-trigger bounds, and visibility curtains are optional colored debug overlays.
+Terrain difference coefficients are converted to bicubic control points, tessellated, normal-generated, UV-mapped, and textured. MDR submeshes render at decoded instance transforms with resolved material textures, including trees, rails, ramps, rocks, signs, icicles, groomers, and other obstacles. Repeated model/material ranges use GPU instancing; the renderer caches the visible instance set and frustum-culls it when the camera changes. Splines, camera-trigger bounds, and visibility curtains are optional colored debug overlays.
 
-The desktop workbench provides course selection with real names, technical-area access, hierarchy search, source/property inspection, texture previews, category visibility controls, camera navigation, terrain highlighting, prop isolation, structured diagnostics, and diagnostic JSON export. OBJ export includes terrain and decoded prop instances.
+The desktop workbench provides course selection with real names, technical-area access, name/category hierarchy search, source/property inspection, texture previews, per-category and per-instance visibility controls, triangle-accurate terrain/prop selection, camera navigation, terrain highlighting, prop isolation, structured diagnostics, and diagnostic JSON export. OBJ export includes terrain, decoded prop instances, an MTL library, and referenced diffuse textures as PNG files.
 
 ## References
 
@@ -20,4 +20,4 @@ Replanetizer informed editor/renderer separation. `ssxdecomp/ssx3` established t
 
 ## Remaining risks
 
-Collision, AIP graphs, particle/light systems, sound triggers, scripts, missions, and other SSB types remain preserved but unsupported. Camera-trigger actions and the non-spatial trigger arrays are unknown. Lightmaps and some texture/material variants remain incomplete. Coordinate units/handedness need validation beyond NTSC-U PS2. Direct viewport picking, glTF, MTL/texture export, installer signing, and editing/serialization are future milestones.
+Collision, AIP graphs, particle/light systems, sound triggers, scripts, missions, and other SSB types remain preserved but unsupported. Camera-trigger actions and the non-spatial trigger arrays are unknown. Lightmaps and some texture/material variants remain incomplete. Coordinate units/handedness need validation beyond NTSC-U PS2. glTF, installer signing, and editing/serialization are future milestones.

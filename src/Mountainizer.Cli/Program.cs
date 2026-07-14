@@ -81,6 +81,7 @@ internal static class MountainizerCli
         var materialTextures = parsed.Scene.Materials.GroupBy(x => Key(x.TrackId, x.ResourceId)).ToDictionary(x => x.Key, x => (int)x.Last().TextureResourceId);
         var modelMaterialIds = parsed.Scene.Models.SelectMany(x => x.Submeshes).Where(x => x.MaterialResourceId >= 0).Select(x => Key(x.MaterialTrackId, x.MaterialResourceId)).Distinct().ToArray();
         var terrainNormals = parsed.Scene.Terrain.SelectMany(x => x.Mesh.Normals).ToArray();
+        var textureResolver = new SceneTextureResolver(parsed.Scene);
         var report = JsonSerializer.Serialize(new { Level = level, TerrainPatches = parsed.Scene.Terrain.Count, PropInstances = parsed.Scene.Props.Count,
             Models = parsed.Scene.Models.Count, ModelsWithGeometry = parsed.Scene.Models.Count(x => x.Mesh is not null), Materials = parsed.Scene.Materials.Count, Textures = parsed.Scene.Textures.Count,
             ReferencedModels = referencedModelIds.Length, ResolvedInstances = parsed.Scene.Props.Count(x => decodedModelIds.Contains(Key(x.ModelTrackId, x.ModelResourceId))),
@@ -89,6 +90,17 @@ internal static class MountainizerCli
             TexturedModelSubmeshes = parsed.Scene.Models.SelectMany(x => x.Submeshes).Count(x => materialTextures.TryGetValue(Key(x.MaterialTrackId, x.MaterialResourceId), out var texture) && textureIds.Contains(texture)),
             Splines = parsed.Scene.Splines.Count, Triggers = parsed.Scene.Triggers.Count, VisibilityCurtains = parsed.Scene.VisibilityCurtains.Count,
             TerrainNormalAbsAverage = terrainNormals.Length == 0 ? null : new { X = terrainNormals.Average(x => Math.Abs(x.X)), Y = terrainNormals.Average(x => Math.Abs(x.Y)), Z = terrainNormals.Average(x => Math.Abs(x.Z)) },
+            TerrainLightmapSamples = parsed.Scene.Terrain.Take(24).Select(x => new { x.TrackId, x.TextureResourceId, x.LightmapResourceId,
+                LightmapVector = x.Properties["LightmapVector"], DiffuseUvs = x.Properties["UVs"] }).ToArray(),
+            TerrainTextureUsage = parsed.Scene.Terrain.GroupBy(x => x.TextureResourceId).OrderBy(x => x.Key)
+                .Select(x => new { TextureResourceId = x.Key, Count = x.Count() }).ToArray(),
+            RampTerrainDetails = parsed.Scene.Terrain.Select((x, index) => (Patch: x, Index: index))
+                .Where(x => x.Patch.TextureResourceId is 109 or 112 or 114 or 235 or 238 or 241 or 378 or 383 or 384)
+                .Select(x => new { x.Index, x.Patch.Name, x.Patch.TrackId, x.Patch.TextureResourceId,
+                    GroupIndex = x.Patch.Properties["GroupIndex"], Bounds = SceneBounds.FromPoints(x.Patch.Mesh.Positions),
+                    Uvs = x.Patch.Properties["UVs"], CornerPoints = x.Patch.Properties["CornerPoints"],
+                    VertexSample = x.Patch.Mesh.Positions.Select((position, vertex) => new { Position = position,
+                        Uv = x.Patch.Mesh.TextureCoordinates[vertex] }).Take(24).ToArray() }).ToArray(),
             SplineDetails = parsed.Scene.Splines.Select(x => new { x.Name, TrackId = x.Properties["TrackId"], ResourceId = x.Properties["ResourceId"],
                 PointCount = x.Points.Count, Start = x.Points.FirstOrDefault()?.Position, End = x.Points.LastOrDefault()?.Position }).ToArray(),
             NavigationProps = parsed.Scene.Props.Where(x => x.Name.Contains("start", StringComparison.OrdinalIgnoreCase) || x.Name.Contains("finish", StringComparison.OrdinalIgnoreCase))
@@ -97,13 +109,34 @@ internal static class MountainizerCli
                     x.ModelTrackId, x.ModelResourceId }).ToArray(),
             UnresolvedModelMaterialKeys = modelMaterialIds.Where(x => !materialTextures.TryGetValue(x, out var texture) || !textureIds.Contains(texture)).Order().ToArray(),
             UnresolvedModelKeys = referencedModelIds.Where(x => !decodedModelIds.Contains(x)).Order().ToArray(),
-            MaterialDetails = parsed.Scene.Materials.Select(x => new { x.TrackId, x.ResourceId, x.TextureResourceId }).ToArray(),
-            ModelDetails = parsed.Scene.Models.Select(x => new { x.Name, ResourceId = Convert.ToInt32(x.Properties["ResourceId"]),
+            MaterialDetails = parsed.Scene.Materials.Select(x => new { x.TrackId, x.ResourceId, x.TextureResourceId, GroupIndex = x.Properties["GroupIndex"], SourceSection = x.Source.SectionName,
+                ResolvedTextures = textureResolver.Resolve(x).Select(t => new { t.TrackId, t.ResourceId, GroupIndex = t.Properties["GroupIndex"] }).ToArray(),
+                UnknownValues = x.Properties["UnknownValues"], PayloadSize = x.Properties["PayloadSize"] }).ToArray(),
+            TextureDetails = parsed.Scene.Textures.Select(x => new { x.TrackId, x.ResourceId, Usage = x.Usage.ToString(), x.Width, x.Height,
+                GroupIndex = x.Properties["GroupIndex"], Format = x.Properties["Format"], HeaderHex = x.Properties["HeaderHex"] }).ToArray(),
+            PropCategories = parsed.Scene.Props.GroupBy(x => x.Classification.Category).OrderBy(x => x.Key)
+                .Select(x => new { Category = x.Key.ToString(), Count = x.Count(), Reason = x.First().Classification.Reason }).ToArray(),
+            ModelDetails = parsed.Scene.Models.Select(x => new { x.Name, TrackId = Convert.ToInt32(x.Properties["TrackId"]), ResourceId = Convert.ToInt32(x.Properties["ResourceId"]), GroupIndex = x.Properties["GroupIndex"], SourceSection = x.Source.SectionName,
+                ResolvedTextures = textureResolver.Resolve(x).Select(t => new { t.TrackId, t.ResourceId, GroupIndex = t.Properties["GroupIndex"] }).ToArray(),
                 Vertices = x.Mesh?.Positions.Count ?? 0, Triangles = (x.Mesh?.Indices.Count ?? 0) / 3,
                 ObjectCount = x.Properties["ObjectCount"], HeaderMaterials = x.Properties["MaterialResourceIds"], DecodedParts = x.Properties["DecodedParts"],
                 SpecialPacketHeaders = x.Properties["SpecialPacketHeaders"],
                 SpecialPacketPreviews = x.Properties["SpecialPacketPreviews"], ModelDataOffset = x.Properties["ModelDataOffset"], PayloadSize = x.Properties["PayloadSize"],
                 Materials = x.Submeshes.Select(s => $"{s.MaterialTrackId}:{s.MaterialResourceId}").Distinct().ToArray(),
+                SubmeshDetails = x.Submeshes.Select(s => new { Material = $"{s.MaterialTrackId}:{s.MaterialResourceId}",
+                    PositionMinimum = s.Mesh.Positions.Count == 0 ? null : new { X = s.Mesh.Positions.Min(v => v.X), Y = s.Mesh.Positions.Min(v => v.Y), Z = s.Mesh.Positions.Min(v => v.Z) },
+                    PositionMaximum = s.Mesh.Positions.Count == 0 ? null : new { X = s.Mesh.Positions.Max(v => v.X), Y = s.Mesh.Positions.Max(v => v.Y), Z = s.Mesh.Positions.Max(v => v.Z) },
+                    AverageNormal = s.Mesh.Normals.Count == 0 ? null : new { X = s.Mesh.Normals.Average(v => v.X), Y = s.Mesh.Normals.Average(v => v.Y), Z = s.Mesh.Normals.Average(v => v.Z) },
+                    UvMinimum = s.Mesh.TextureCoordinates.Count == 0 ? null : new { X = s.Mesh.TextureCoordinates.Min(v => v.X), Y = s.Mesh.TextureCoordinates.Min(v => v.Y) },
+                    UvMaximum = s.Mesh.TextureCoordinates.Count == 0 ? null : new { X = s.Mesh.TextureCoordinates.Max(v => v.X), Y = s.Mesh.TextureCoordinates.Max(v => v.Y) },
+                    UvSample = s.Mesh.TextureCoordinates.Take(12).ToArray(),
+                    VertexSample = s.Mesh.Positions.Select((position, index) => new { Position = position,
+                        Normal = index < s.Mesh.Normals.Count ? s.Mesh.Normals[index] : default,
+                        Uv = index < s.Mesh.TextureCoordinates.Count ? s.Mesh.TextureCoordinates[index] : default }).Take(24).ToArray(),
+                    TopVertexSample = s.Mesh.Positions.Select((position, index) => new { Position = position,
+                        Normal = index < s.Mesh.Normals.Count ? s.Mesh.Normals[index] : default,
+                        Uv = index < s.Mesh.TextureCoordinates.Count ? s.Mesh.TextureCoordinates[index] : default })
+                        .Where(v => v.Normal.Y > 0.45f).Take(48).ToArray() }).ToArray(),
                 Instances = parsed.Scene.Props.Count(p => Key(p.ModelTrackId, p.ModelResourceId) == Key(Convert.ToInt32(x.Properties["TrackId"]), Convert.ToInt32(x.Properties["ResourceId"]))),
                 InstanceIndices = parsed.Scene.Props.Select((p, i) => (p, i)).Where(v => Key(v.p.ModelTrackId, v.p.ModelResourceId) == Key(Convert.ToInt32(x.Properties["TrackId"]), Convert.ToInt32(x.Properties["ResourceId"]))).Select(v => v.i).ToArray(),
                 InstanceNames = parsed.Scene.Props.Where(p => Key(p.ModelTrackId, p.ModelResourceId) == Key(Convert.ToInt32(x.Properties["TrackId"]), Convert.ToInt32(x.Properties["ResourceId"]))).Select(p => p.Name).ToArray() }).ToArray(),
@@ -120,15 +153,20 @@ internal static class MountainizerCli
     {
         var project = ProjectService.Open(args[1]); var level = args[2]; var format = Option(args, "--format") ?? "obj"; var output = Option(args, "--output") ?? ".";
         if (!format.Equals("obj", StringComparison.OrdinalIgnoreCase)) throw new NotSupportedException("This vertical slice supports OBJ; glTF is planned.");
-        var parsed = Parse(project, level); Directory.CreateDirectory(output); var path = Path.Combine(output, level + ".obj"); ObjExporter.ExportScene(parsed.Scene, path); Console.WriteLine($"Wrote {path}"); return 0;
+        var parsed = Parse(project, level); Directory.CreateDirectory(output); var path = Path.Combine(output, level + ".obj"); var result = ObjExporter.ExportScene(parsed.Scene, path);
+        Console.WriteLine($"Wrote {result.ObjPath}"); Console.WriteLine($"Wrote {result.MaterialPath}"); Console.WriteLine($"Wrote {result.TextureCount} PNG texture(s) to {result.TextureDirectory}"); return 0;
     }
     private static int DumpTextures(string[] args)
     {
         var project = ProjectService.Open(args[1]); var parsed = Parse(project, args[2]); var output = Path.GetFullPath(args[3]); Directory.CreateDirectory(output);
+        var resourceFilter = int.TryParse(Option(args, "--resource-id"), out var resourceId) ? resourceId : (int?)null;
+        var groupFilter = int.TryParse(Option(args, "--group"), out var groupIndex) ? groupIndex : (int?)null;
+        var written = 0;
         for (var i = 0; i < parsed.Scene.Textures.Count; i++)
         {
             var texture = parsed.Scene.Textures[i]; var group = Convert.ToInt32(texture.Properties["GroupIndex"]);
-            var path = Path.Combine(output, $"{i:D4}-g{group:D3}-rid{texture.ResourceId:D3}-{texture.Width}x{texture.Height}.bmp");
+            if (resourceFilter is not null && texture.ResourceId != resourceFilter || groupFilter is not null && group != groupFilter) continue;
+            var path = Path.Combine(output, $"{i:D4}-g{group:D3}-{texture.Usage.ToString().ToLowerInvariant()}-rid{texture.ResourceId:D3}-{texture.Width}x{texture.Height}.bmp");
             using var stream = File.Create(path); using var writer = new BinaryWriter(stream); var imageSize = checked(texture.Width * texture.Height * 4);
             writer.Write((byte)'B'); writer.Write((byte)'M'); writer.Write(54 + imageSize); writer.Write(0); writer.Write(54);
             writer.Write(40); writer.Write(texture.Width); writer.Write(-texture.Height); writer.Write((ushort)1); writer.Write((ushort)32);
@@ -136,10 +174,11 @@ internal static class MountainizerCli
             for (var pixel = 0; pixel < texture.Width * texture.Height; pixel++)
             {
                 writer.Write(texture.RgbaPixels[pixel * 4 + 2]); writer.Write(texture.RgbaPixels[pixel * 4 + 1]);
-                writer.Write(texture.RgbaPixels[pixel * 4]); writer.Write((byte)255);
+                writer.Write(texture.RgbaPixels[pixel * 4]); writer.Write(texture.RgbaPixels[pixel * 4 + 3]);
             }
+            written++;
         }
-        Console.WriteLine($"Wrote {parsed.Scene.Textures.Count} textures to {output}"); return parsed.Diagnostics.HasErrors ? 2 : 0;
+        Console.WriteLine($"Wrote {written} textures to {output}"); return parsed.Diagnostics.HasErrors ? 2 : 0;
     }
     private static Ssx3LevelParseResult Parse(MountainizerProject project, string level)
     {
@@ -165,7 +204,7 @@ Mountainizer CLI (read-only)
   mountainizer-cli import <iso> <project-directory> <project-name>
   mountainizer-cli list-levels <project-or-project.json>
   mountainizer-cli inspect <project> <level> [--json <output>]
-  mountainizer-cli dump-textures <project> <level> <output-directory>
+  mountainizer-cli dump-textures <project> <level> <output-directory> [--resource-id <id>] [--group <index>]
   mountainizer-cli export <project> <level> --format obj --output <directory>
 """);
 

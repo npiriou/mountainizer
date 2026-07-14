@@ -3,6 +3,7 @@ using System.Numerics;
 namespace Mountainizer.Core;
 
 public enum SupportConfidence { Unknown, Low, Medium, High, Verified }
+public enum TextureUsage { Diffuse, Lightmap }
 
 public sealed record SourceByteRange(
     string SourceFile,
@@ -36,7 +37,8 @@ public sealed class MountainizerScene
 }
 
 public sealed record MeshData(IReadOnlyList<Vector3> Positions, IReadOnlyList<Vector3> Normals,
-    IReadOnlyList<Vector2> TextureCoordinates, IReadOnlyList<uint> Indices);
+    IReadOnlyList<Vector2> TextureCoordinates, IReadOnlyList<uint> Indices,
+    IReadOnlyList<Vector2>? LightmapTextureCoordinates = null);
 
 public sealed record TerrainPatch(
     string Name,
@@ -51,14 +53,10 @@ public sealed record TerrainPatch(
 public sealed record PropInstance(string Name, SourceByteRange Source, Matrix4x4 Transform,
     int ModelTrackId, int ModelResourceId, IReadOnlyDictionary<string, object?> Properties) : ISceneItem
 {
-    public bool IsCollisionProxy => Name.Contains("collision", StringComparison.OrdinalIgnoreCase);
-    public bool IsNonVisualGameplayProxy => IsCollisionProxy
-        || Name.Contains("reset_plane", StringComparison.OrdinalIgnoreCase)
-        || Name.Contains("resetplane", StringComparison.OrdinalIgnoreCase)
-        || Name.Contains("volume", StringComparison.OrdinalIgnoreCase)
-        || Name.Contains("ridestate", StringComparison.OrdinalIgnoreCase)
-        || Name.Contains("heightplane", StringComparison.OrdinalIgnoreCase)
-        || Name.Contains("trig", StringComparison.OrdinalIgnoreCase);
+    private PropClassification? _classification;
+    public PropClassification Classification => _classification ??= PropClassifier.Classify(Name);
+    public bool IsCollisionProxy => Classification.Category == PropRenderCategory.Collision;
+    public bool IsNonVisualGameplayProxy => !Classification.IsVisual;
 }
 public sealed record ModelSubmesh(MeshData Mesh, int MaterialTrackId, int MaterialResourceId);
 public sealed record ModelAsset(string Name, SourceByteRange Source, MeshData? Mesh, IReadOnlyList<ModelSubmesh> Submeshes,
@@ -69,6 +67,8 @@ public sealed record TextureAsset(string Name, SourceByteRange Source, int Width
     int ResourceId, byte[] RgbaPixels, IReadOnlyDictionary<string, object?> Properties) : ISceneItem
 {
     public bool Decoded => RgbaPixels.Length == Width * Height * 4;
+    public TextureUsage Usage => Properties.TryGetValue("TextureUsage", out var value) && Enum.TryParse<TextureUsage>(value?.ToString(), out var usage) ? usage : TextureUsage.Diffuse;
+    public bool IsLightmap => Usage == TextureUsage.Lightmap;
 }
 public sealed record SplinePoint(Vector3 Position, float? Time = null);
 public sealed record Spline(string Name, SourceByteRange Source, IReadOnlyList<SplinePoint> Points,

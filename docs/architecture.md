@@ -17,7 +17,7 @@ Playable courses are catalog entries rather than single SDB locations. The forma
 - `Mountainizer.Core`: stable scene records, source byte ranges, confidence and structured diagnostics. Parsed objects do not expose parser-owned streams.
 - `Mountainizer.Formats`: span reader, BIG, RefPack, SDB, SSB framing, terrain conversion and mesh generation. Every count/offset is bounded before allocation or slicing.
 - `Mountainizer.Iso`: ISO9660 read-only index/extraction, SHA-256 identification, versioned `project.json`, deterministic cache layout.
-- `Mountainizer.Rendering`: OpenTK 4.9.4 OpenGL 3.3 renderer, camera, grid, textured terrain/instances, debug lines/boxes, visibility controls, culling/wireframe and hierarchy-driven selection highlight. It consumes `Core` only.
+- `Mountainizer.Rendering`: OpenTK 4.9.4 OpenGL 3.3 renderer, camera, grid, textured terrain, cached GPU instance/material batches, per-instance frustum culling, category/instance visibility controls, two-stage bounds-plus-triangle picking, wireframe and hierarchy-driven selection highlight. It consumes `Core` only.
 - `Mountainizer.Export`: independent OBJ export from `Core` meshes.
 - `Mountainizer.Cli`: automation surface using the same libraries as the GUI.
 - `Mountainizer.App`: Windows WPF inspection shell using OpenTK.GLWpfControl 4.3.6. Parsing/import run outside the UI thread and report progress.
@@ -37,7 +37,7 @@ All format-to-render conversion passes through `Ssx3Coordinates.ToMountainizer`.
 
 ## UI and threading
 
-The fixed workspace has resizable hierarchy, viewport, inspector, texture-preview, diagnostics and log panes. Terrain selection is initiated in the hierarchy and highlighted by a second line pass; decoded props can be isolated and framed. Import hashing and course parsing use background tasks; scene upload occurs on the OpenGL context's render thread. GPU buffers are replaced only at that boundary.
+The fixed workspace has resizable hierarchy, viewport, inspector, texture-preview, diagnostics and log panes. Terrain selection is initiated in the hierarchy and highlighted by a second line pass; decoded props can be isolated and framed. Import hashing and course parsing use background tasks; scene upload occurs on the OpenGL context's render thread. Static model geometry is uploaded once, repeated transforms are submitted as GPU instances, and the visible transform buffer is rebuilt only when the camera or visibility settings change.
 
 ## Project layout
 

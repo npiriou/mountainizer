@@ -18,11 +18,14 @@ public partial class MainWindow : Window
 {
     private sealed record LevelSelection(string Code, string DisplayName, Ssx3CourseDefinition? Course, Ssx3LevelArea? Area);
     private sealed record AssetEntry(string DisplayName, ISceneItem Item);
+    private sealed record PropCategoryFilterEntry(string DisplayName, PropRenderCategory? Category);
     private readonly SceneRenderer _renderer = new();
     private MountainizerProject? _project;
     private Ssx3Sdb? _sdb;
     private Ssx3LevelParseResult? _parseResult;
     private MountainizerScene? _scene;
+    private MountainizerScene? _textureResolverScene;
+    private SceneTextureResolver? _textureResolver;
     private Point _lastMouse;
     private MouseButton? _dragButton;
     private bool _loadingLevel;
@@ -32,6 +35,9 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent(); DiagnosticsGrid.ItemsSource = _diagnostics;
+        HierarchyCategoryFilter.ItemsSource = new[] { new PropCategoryFilterEntry("All types", null) }
+            .Concat(Enum.GetValues<PropRenderCategory>().Select(x => new PropCategoryFilterEntry(CategoryLabel(x), x))).ToArray();
+        HierarchyCategoryFilter.DisplayMemberPath = nameof(PropCategoryFilterEntry.DisplayName); HierarchyCategoryFilter.SelectedIndex = 0;
         GlViewport.Start(); Log("Information", "Mountainizer started in read-only mode.");
         Loaded += async (_, _) =>
         {
@@ -121,14 +127,28 @@ public partial class MainWindow : Window
     private void BuildHierarchy()
     {
         SceneTree.Items.Clear(); if (_scene is null) return; var filter = SearchBox.Text.Trim();
+        if (!ReferenceEquals(_textureResolverScene, _scene))
+        {
+            _textureResolverScene = _scene; _textureResolver = new SceneTextureResolver(_scene);
+            TexturePreview.Source = null; AssetDetails.Text = "Select an object or asset to preview its texture.";
+        }
         var root = Item($"Level — {_scene.Name}", null);
         AddCategory(root, "Terrain", _scene.Terrain.Cast<ISceneItem>(), filter);
-        AddCategory(root, "Props", _scene.Props.Where(x => !x.IsNonVisualGameplayProxy).Cast<ISceneItem>(), filter);
-        AddCategory(root, "Invisible gameplay walls", _scene.Props.Where(x => x.IsNonVisualGameplayProxy).Cast<ISceneItem>(), filter);
+        var categoryFilter = (HierarchyCategoryFilter.SelectedItem as PropCategoryFilterEntry)?.Category;
+        foreach (var category in Enum.GetValues<PropRenderCategory>())
+        {
+            if (categoryFilter is not null && category != categoryFilter) continue;
+            AddCategory(root, $"Props - {CategoryLabel(category)}", _scene.Props.Where(x => x.Classification.Category == category).Cast<ISceneItem>(), filter);
+        }
         AddCategory(root, "Splines", _scene.Splines.Cast<ISceneItem>(), filter);
         AddCategory(root, "Triggers", _scene.Triggers.Cast<ISceneItem>(), filter); AddCategory(root, "Visibility", _scene.VisibilityCurtains.Cast<ISceneItem>(), filter);
         AddCategory(root, "Models", _scene.Models.Cast<ISceneItem>(), filter); AddCategory(root, "Materials", _scene.Materials.Cast<ISceneItem>(), filter); AddCategory(root, "Textures", _scene.Textures.Cast<ISceneItem>(), filter);
-        AddCategory(root, "Unknown Sections", _scene.UnknownSections.Cast<ISceneItem>(), filter, 500);
+        AddCategory(root, "Particle programs", _scene.UnknownSections.Where(x => x.ResourceType == 4).Cast<ISceneItem>(), filter);
+        AddCategory(root, "Particle emitters", _scene.UnknownSections.Where(x => x.ResourceType == 5).Cast<ISceneItem>(), filter);
+        AddCategory(root, "Lights", _scene.UnknownSections.Where(x => x.ResourceType == 6).Cast<ISceneItem>(), filter);
+        AddCategory(root, "Halos", _scene.UnknownSections.Where(x => x.ResourceType == 7).Cast<ISceneItem>(), filter);
+        AddCategory(root, "NIS / avalanche tables", _scene.UnknownSections.Where(x => x.ResourceType is 18 or 22).Cast<ISceneItem>(), filter);
+        AddCategory(root, "Unknown Sections", _scene.UnknownSections.Where(x => x.ResourceType is not (4 or 5 or 6 or 7 or 18 or 22)).Cast<ISceneItem>(), filter, 500);
         root.IsExpanded = true; SceneTree.Items.Add(root);
         AssetList.ItemsSource = _scene.Models.Select(x => new AssetEntry($"Model  •  {x.Name}", x))
             .Concat(_scene.Materials.Select(x => new AssetEntry($"Material  •  {x.Name}", x)))
@@ -149,32 +169,51 @@ public partial class MainWindow : Window
     private void SelectItem(ISceneItem? item)
     {
         _selectedItem = item;
+        HideSelectedPropMenu.IsEnabled = item is PropInstance; ShowOnlySelectedTypeMenu.IsEnabled = item is PropInstance;
         if (item is null) { PropertyGrid.ItemsSource = null; _renderer.ClearSelection(); return; }
         var values = new List<KeyValuePair<string, string>> { new("Name", item.Name), new("Source file", item.Source.SourceFile), new("Source offset", $"0x{item.Source.SourceOffset:X}"),
             new("Source length", item.Source.SourceLength.ToString()), new("Section", item.Source.SectionName), new("Original index", item.Source.OriginalIndex.ToString()), new("Confidence", item.Source.Confidence.ToString()) };
+        if (item is PropInstance classifiedProp)
+        {
+            values.Add(new("Render category", classifiedProp.Classification.Category.ToString()));
+            values.Add(new("Classification reason", classifiedProp.Classification.Reason));
+            values.Add(new("Category visible", _renderer.IsPropCategoryVisible(classifiedProp.Classification.Category).ToString()));
+            values.Add(new("Manually hidden", _renderer.IsPropHidden(classifiedProp).ToString()));
+        }
         values.AddRange(item.Properties.Select(x => new KeyValuePair<string, string>(x.Key, x.Value?.ToString() ?? "null"))); PropertyGrid.ItemsSource = values;
         if (_scene is not null) _renderer.SelectItem(_scene, item);
-        if (item is TextureAsset texture) ShowTexture(texture);
+        ShowAssetPreview(item);
     }
     private void AssetList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (AssetList.SelectedItem is AssetEntry { Item: TextureAsset texture }) ShowTexture(texture);
-        else if (AssetList.SelectedItem is AssetEntry asset) { TexturePreview.Source = null; AssetDetails.Text = asset.DisplayName; }
+        if (AssetList.SelectedItem is AssetEntry asset) ShowAssetPreview(asset.Item);
     }
-    private void ShowTexture(TextureAsset texture)
+    private void ShowAssetPreview(ISceneItem item)
+    {
+        var textures = _textureResolver?.Resolve(item);
+        if (textures is null || textures.Count == 0)
+        {
+            TexturePreview.Source = null; AssetDetails.Text = $"{item.Name}: no decoded texture is linked to this asset."; return;
+        }
+        ShowTexture(textures[0], item, textures.Count);
+    }
+    private void ShowTexture(TextureAsset texture, ISceneItem context, int textureCount)
     {
         if (!texture.Decoded) { TexturePreview.Source = null; AssetDetails.Text = $"{texture.Name}: texture data is not decoded."; return; }
         var bgra = new byte[texture.RgbaPixels.Length];
         for (var i = 0; i < bgra.Length; i += 4) { bgra[i] = texture.RgbaPixels[i + 2]; bgra[i + 1] = texture.RgbaPixels[i + 1]; bgra[i + 2] = texture.RgbaPixels[i]; bgra[i + 3] = texture.RgbaPixels[i + 3]; }
         var bitmap = BitmapSource.Create(texture.Width, texture.Height, 96, 96, PixelFormats.Bgra32, null, bgra, texture.Width * 4);
         bitmap.Freeze(); TexturePreview.Source = bitmap;
-        AssetDetails.Text = $"{texture.Name}  •  {texture.Width}×{texture.Height}  •  RID {texture.ResourceId}  •  {texture.Source.SectionName}";
+        var linked = ReferenceEquals(context, texture) ? string.Empty : $"  •  linked from {context.Name}";
+        var count = textureCount > 1 ? $"  •  first of {textureCount} textures" : string.Empty;
+        AssetDetails.Text = $"{texture.Name}  •  {texture.Width}×{texture.Height}  •  RID {texture.ResourceId}{linked}{count}";
     }
     private void SceneTree_MouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
         if (_scene is not null && SceneTree.SelectedItem is TreeViewItem { Tag: PropInstance prop } && _renderer.FrameProp(_scene, prop)) e.Handled = true;
     }
     private void SearchBox_TextChanged(object sender, TextChangedEventArgs e) => BuildHierarchy();
+    private void HierarchyCategoryFilter_SelectionChanged(object sender, SelectionChangedEventArgs e) => BuildHierarchy();
     private void GlViewport_Render(TimeSpan delta)
     {
         UpdateNavigation(delta);
@@ -240,12 +279,29 @@ public partial class MainWindow : Window
     private void Culling_Click(object sender, RoutedEventArgs e) => _renderer.BackfaceCulling = ((MenuItem)sender).IsChecked;
     private void Grid_Click(object sender, RoutedEventArgs e) => _renderer.ShowGrid = ((MenuItem)sender).IsChecked;
     private void Terrain_Click(object sender, RoutedEventArgs e) => _renderer.ShowTerrain = ((MenuItem)sender).IsChecked;
-    private void Props_Click(object sender, RoutedEventArgs e) => _renderer.ShowProps = ((MenuItem)sender).IsChecked;
-    private void GameplayProxies_Click(object sender, RoutedEventArgs e) => _renderer.ShowGameplayProxies = ((MenuItem)sender).IsChecked;
+    private void PropCategory_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem { Tag: string value } item || !Enum.TryParse<PropRenderCategory>(value, out var category)) return;
+        _renderer.SetPropCategoryVisible(category, item.IsChecked); RefreshSelectedProperties();
+    }
+    private void HideSelectedProp_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selectedItem is not PropInstance prop || !_renderer.HideProp(prop)) return;
+        Log("Information", $"Hidden prop {prop.Name}. Use View > Unhide all props to restore it."); RefreshSelectedProperties();
+    }
+    private void ShowOnlySelectedType_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selectedItem is not PropInstance prop) return;
+        _renderer.ShowOnlyPropCategory(prop.Classification.Category); SyncPropCategoryMenus(); RefreshSelectedProperties();
+        Log("Information", $"Showing only {CategoryLabel(prop.Classification.Category)} props.");
+    }
+    private void ShowAllPropTypes_Click(object sender, RoutedEventArgs e) { _renderer.ShowAllPropCategories(); SyncPropCategoryMenus(); RefreshSelectedProperties(); }
+    private void ResetPropTypes_Click(object sender, RoutedEventArgs e) { _renderer.ShowOnlyPropCategory(PropRenderCategory.Visual); SyncPropCategoryMenus(); RefreshSelectedProperties(); }
+    private void UnhideAllProps_Click(object sender, RoutedEventArgs e) { _renderer.ShowAllHiddenProps(); RefreshSelectedProperties(); }
     private void Splines_Click(object sender, RoutedEventArgs e) => _renderer.ShowSplines = ((MenuItem)sender).IsChecked;
     private void Triggers_Click(object sender, RoutedEventArgs e) => _renderer.ShowTriggers = ((MenuItem)sender).IsChecked;
     private void Visibility_Click(object sender, RoutedEventArgs e) => _renderer.ShowVisibilityCurtains = ((MenuItem)sender).IsChecked;
-    private void ExportObj_Click(object sender, RoutedEventArgs e) { if (_scene is null) return; var dialog = new SaveFileDialog { Filter = "Wavefront OBJ (*.obj)|*.obj", FileName = _scene.Name + ".obj" }; if (dialog.ShowDialog(this) == true) { ObjExporter.ExportScene(_scene, dialog.FileName); Log("Information", $"Exported terrain and decoded props to {dialog.FileName}"); } }
+    private void ExportObj_Click(object sender, RoutedEventArgs e) { if (_scene is null) return; var dialog = new SaveFileDialog { Filter = "Wavefront OBJ (*.obj)|*.obj", FileName = _scene.Name + ".obj" }; if (dialog.ShowDialog(this) == true) { var result = ObjExporter.ExportScene(_scene, dialog.FileName); Log("Information", $"Exported textured scene to {result.ObjPath}, {result.MaterialPath}, and {result.TextureCount} PNG texture(s) in {result.TextureDirectory}"); } }
     private void ExportDiagnostics_Click(object sender, RoutedEventArgs e) { var dialog = new SaveFileDialog { Filter = "JSON (*.json)|*.json", FileName = "mountainizer-diagnostics.json" }; if (dialog.ShowDialog(this) == true) File.WriteAllText(dialog.FileName, System.Text.Json.JsonSerializer.Serialize(_diagnostics, DiagnosticBag.JsonOptions)); }
     private void Controls_Click(object sender, RoutedEventArgs e) => MessageBox.Show(this, "Left mouse: select visible terrain or prop\nRight mouse: orbit around the surface under the cursor\nMiddle mouse: pan\nWheel: zoom without changing view direction\nCtrl + wheel: precision zoom\nShift + wheel: fast zoom\nWASD + Q/E: continuous fly\nShift: faster\nF: frame selected item (or leave prop isolation)\nEscape: clear selection", "Viewport controls");
     private void Exit_Click(object sender, RoutedEventArgs e) => Close();
@@ -254,6 +310,20 @@ public partial class MainWindow : Window
     private void UpdateProgress(string stage, double percent) { ProgressText.Text = stage; ProgressBar.Value = Math.Clamp(percent, 0, 100); }
     private void Log(string level, string message) => LogBox.AppendText($"{DateTime.Now:HH:mm:ss} [{level}] {message}{Environment.NewLine}");
     private void ShowError(string title, Exception ex) { Log("Error", ex.ToString()); MessageBox.Show(this, ex.Message, title, MessageBoxButton.OK, MessageBoxImage.Error); }
+    private MenuItem[] PropCategoryMenus => [PropVisualMenu, PropCollisionMenu, PropResetPlaneMenu, PropGameplayVolumeMenu, PropTriggerMenu,
+        PropRideStateMenu, PropStreamingMarkerMenu, PropEffectMarkerMenu, PropProxyMenu];
+    private void SyncPropCategoryMenus()
+    {
+        foreach (var item in PropCategoryMenus)
+            if (item.Tag is string value && Enum.TryParse<PropRenderCategory>(value, out var category)) item.IsChecked = _renderer.IsPropCategoryVisible(category);
+    }
+    private void RefreshSelectedProperties() { var selected = _selectedItem; if (selected is not null) SelectItem(selected); }
+    private static string CategoryLabel(PropRenderCategory category) => category switch
+    {
+        PropRenderCategory.ResetPlane => "Reset planes", PropRenderCategory.GameplayVolume => "Gameplay volumes",
+        PropRenderCategory.RideState => "Ride-state markers", PropRenderCategory.StreamingMarker => "Streaming markers",
+        PropRenderCategory.EffectMarker => "Effect markers", PropRenderCategory.Proxy => "Other proxies", _ => category.ToString()
+    };
     private static string Sanitize(string value) => string.Concat(value.Select(x => System.IO.Path.GetInvalidFileNameChars().Contains(x) ? '_' : x));
     private static string RecentProjectFile => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Mountainizer", "recent-project.txt");
     private static string? ReadRecentProject() { try { return File.Exists(RecentProjectFile) ? File.ReadAllText(RecentProjectFile).Trim() : null; } catch { return null; } }
