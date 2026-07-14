@@ -141,11 +141,11 @@ public sealed class FormatTests
     [TestMethod]
     public void TextureCoordinates_KeepMdrSignsUprightAndRotateTerrainRampTiles()
     {
-        var uv = new Vector2(0.25f, 0.75f);
+        var uv = new Vector2(0.2f, 0.7f);
         Assert.AreEqual(uv, TextureCoordinateConvention.ModelToOpenGl(uv));
-        Assert.AreEqual(new Vector2(0.25f, 0.25f), TextureCoordinateConvention.TerrainToOpenGl(uv));
-        Assert.AreEqual(new Vector2(0.75f, 0.75f), TextureCoordinateConvention.TerrainToOpenGl(uv, 238));
-        Assert.AreEqual(new Vector2(0.75f, 0.75f), TextureCoordinateConvention.TerrainToOpenGl(uv, 109));
+        Assert.AreEqual(new Vector2(0.2f, 0.3f), TextureCoordinateConvention.TerrainToOpenGl(uv));
+        Assert.AreEqual(new Vector2(0.3f, 0.8f), TextureCoordinateConvention.TerrainToOpenGl(uv, 238));
+        Assert.AreEqual(new Vector2(0.3f, 0.8f), TextureCoordinateConvention.TerrainToOpenGl(uv, 109));
         Assert.AreEqual(TextureCoordinateConvention.TerrainToOpenGl(uv), TextureCoordinateConvention.TerrainToOpenGl(uv, 42));
     }
 

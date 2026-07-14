@@ -10,7 +10,10 @@ public static class TextureCoordinateConvention
 {
     public static Vector2 TerrainToOpenGl(Vector2 uv) => new(uv.X, 1f - uv.Y);
     public static Vector2 TerrainToOpenGl(Vector2 uv, int textureResourceId) =>
-        IsRampTerrainTexture(textureResourceId) ? new(uv.Y, 1f - uv.X) : TerrainToOpenGl(uv);
+        // Ramp patches use adjacent left/right atlas halves. Flip the transverse
+        // coordinate while turning the longitudinal axis so the two halves meet
+        // at the seam instead of appearing mirrored at the outside edges.
+        IsRampTerrainTexture(textureResourceId) ? new(1f - uv.Y, 1f - uv.X) : TerrainToOpenGl(uv);
     public static Vector2 ModelToOpenGl(Vector2 uv) => uv;
 
     // Left, centre, and right tiles of the orange-arrow snow ramps.

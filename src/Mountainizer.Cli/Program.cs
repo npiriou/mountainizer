@@ -97,7 +97,10 @@ internal static class MountainizerCli
             RampTerrainDetails = parsed.Scene.Terrain.Select((x, index) => (Patch: x, Index: index))
                 .Where(x => x.Patch.TextureResourceId is 109 or 112 or 114 or 235 or 238 or 241 or 378 or 383 or 384)
                 .Select(x => new { x.Index, x.Patch.Name, x.Patch.TrackId, x.Patch.TextureResourceId,
-                    GroupIndex = x.Patch.Properties["GroupIndex"], Bounds = SceneBounds.FromPoints(x.Patch.Mesh.Positions),
+                    GroupIndex = x.Patch.Properties["GroupIndex"],
+                    Minimum = new { X = x.Patch.Mesh.Positions.Min(v => v.X), Y = x.Patch.Mesh.Positions.Min(v => v.Y), Z = x.Patch.Mesh.Positions.Min(v => v.Z) },
+                    Maximum = new { X = x.Patch.Mesh.Positions.Max(v => v.X), Y = x.Patch.Mesh.Positions.Max(v => v.Y), Z = x.Patch.Mesh.Positions.Max(v => v.Z) },
+                    Center = new { X = x.Patch.Mesh.Positions.Average(v => v.X), Y = x.Patch.Mesh.Positions.Average(v => v.Y), Z = x.Patch.Mesh.Positions.Average(v => v.Z) },
                     Uvs = x.Patch.Properties["UVs"], CornerPoints = x.Patch.Properties["CornerPoints"],
                     VertexSample = x.Patch.Mesh.Positions.Select((position, vertex) => new { Position = position,
                         Uv = x.Patch.Mesh.TextureCoordinates[vertex] }).Take(24).ToArray() }).ToArray(),
