@@ -18,6 +18,6 @@ export <project> <course-or-area> --format obj --output <directory>
 
 `list-levels` prints the 17 friendly playable courses first and the 49 technical SDB streaming areas afterward. A playable course code such as `ARA1` loads the complete Snow Jam assembly; a technical name such as `A_ARA1` loads only that raw area.
 
-`inspect` reports geometry, material/reference resolution, debug structures, unknown resources, bounds, timings, warnings, and errors. `export` writes terrain and decoded prop instances to OBJ.
+`inspect` reports geometry, material/reference resolution, debug structures, unknown resources, bounds, timings, warnings, and errors. `export` writes terrain and decoded prop instances to OBJ together with an MTL library and deduplicated PNG textures.
 
 Exit codes are 0 for success, 1 for command/fatal errors, and 2 when parsing completed with structured errors.

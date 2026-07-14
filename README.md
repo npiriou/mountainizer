@@ -13,13 +13,13 @@ Mountainizer contains no SSX 3 assets. It never modifies or repacks the source i
 - Imports and identifies the PS2 NTSC-U release (`SLUS_207.72`) from an ISO9660 image
 - Presents all 17 courses by their in-game names, peak, discipline, and internal code
 - Assembles each course from its event, shared-mountain, connector, and sky streaming areas
-- Renders textured terrain plus decoded static props and models
+- Renders diffuse terrain plus decoded static props and models, using cached GPU instance batches and camera-frustum culling; decoded Type-10 lightmap atlases remain available for inspection
 - Opens near the course's starting gate, facing downhill like the start of a race
 - Provides surface-anchored orbit, adaptive cursor-directed zoom, pan, and fly controls
-- Browses the scene hierarchy, properties, source offsets, materials, and decoded textures
+- Browses the scene hierarchy, properties, source offsets, materials, and decoded textures, with linked texture previews for terrain, materials, models, and props
 - Visualizes splines, camera triggers, and visibility curtains as optional debug geometry
 - Hides non-visual reset planes, gameplay volumes, triggers, ride-state meshes, and collision walls by default, with a dedicated debug toggle
-- Exports tessellated terrain and decoded prop instances to OBJ
+- Exports tessellated terrain and decoded prop instances to OBJ with an MTL library and deduplicated PNG textures
 - Preserves unsupported resources and reports structured parsing diagnostics
 - Includes a CLI for identification, extraction, inspection, texture dumping, and export
 
@@ -70,7 +70,7 @@ Mountainizer creates a reusable local project cache. The source ISO remains read
 
 | Input | Action |
 | --- | --- |
-| Left mouse | Select visible terrain, props, or enabled debug structures |
+| Left mouse | Select the exact visible terrain or prop triangle under the cursor, or an enabled debug structure |
 | Right mouse drag | Orbit around the track surface beneath the cursor |
 | Middle mouse drag | Pan with distance-aware sensitivity |
 | Mouse wheel | Zoom without changing the viewing direction |
@@ -83,7 +83,7 @@ Mountainizer creates a reusable local project cache. The source ISO remains read
 | Escape | Clear the selection |
 | Double-click a prop | Isolate and frame that prop |
 
-Choose **View → Frame scene** to frame the complete course. Terrain and props are enabled by default; use the **View** menu for debug overlays, wireframe, backface culling, and the grid.
+Choose **View → Frame scene** to frame the complete course. Visual props are enabled by default. The **View → Prop / model categories** submenu independently controls visual, collision, reset-plane, gameplay-volume, trigger, ride-state, streaming, effect, and proxy instances. The same menu can hide one selected prop, show only its type, restore hidden props, or enable all types.
 
 ## Supported courses
 

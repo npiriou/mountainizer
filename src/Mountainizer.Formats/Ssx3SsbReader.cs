@@ -102,19 +102,20 @@ public static class Ssx3SsbReader
             group.SetLength(0); groupCompressedLength = 0; groupIndex++;
             if (groupIndex > lastSelectedGroup) break;
         }
-        ConsolidateTextures(scene, selectedGroups);
+        ConsolidateTextureBanks(scene);
         diagnostics.Info("SSB011", $"Scene contains {scene.Terrain.Count} terrain patches, {scene.Props.Count} prop instances, {scene.Models.Count} models, {scene.Materials.Count} materials, {scene.Textures.Count} textures, {scene.Splines.Count} splines, {scene.Triggers.Count} triggers, {scene.VisibilityCurtains.Count} visibility curtains and {scene.UnknownSections.Count} unsupported resources", ssbPath);
         return new(scene, groups, diagnostics);
     }
 
-    private static void ConsolidateTextures(MountainizerScene scene, IReadOnlySet<int> selectedGroups)
+    private static void ConsolidateTextureBanks(MountainizerScene scene)
     {
-        var selected = scene.Textures.GroupBy(x => x.ResourceId).Select(group =>
+        // Resource ids are local to a streaming-group texture bank. Preserve one
+        // decoded variant per group instead of allowing a later bank to replace
+        // every earlier texture that happens to reuse the same numeric id.
+        var selected = scene.Textures.GroupBy(x => (x.ResourceId, x.Usage, GroupIndex: PropertyInt(x, "GroupIndex"))).Select(group =>
         {
-            var local = group.Where(x => selectedGroups.Contains(Convert.ToInt32(x.Properties["GroupIndex"]))).ToArray();
-            if (local.Length > 0) return local[^1];
             var meaningful = group.Where(IsMeaningful).ToArray(); return meaningful.Length > 0 ? meaningful[^1] : group.Last();
-        }).OrderBy(x => x.ResourceId).ToArray();
+        }).OrderBy(x => x.Usage).ThenBy(x => PropertyInt(x, "GroupIndex")).ThenBy(x => x.ResourceId).ToArray();
         scene.Textures.Clear(); scene.Textures.AddRange(selected);
 
         static bool IsMeaningful(TextureAsset texture)
@@ -123,6 +124,9 @@ public static class Ssx3SsbReader
                 if (texture.RgbaPixels[i + 3] > 4 && texture.RgbaPixels[i] + texture.RgbaPixels[i + 1] + texture.RgbaPixels[i + 2] > 6) return true;
             return false;
         }
+
+        static int PropertyInt(ISceneItem item, string name) =>
+            item.Properties.TryGetValue(name, out var value) ? Convert.ToInt32(value) : -1;
     }
 
     private static int ParseGroup(ReadOnlySpan<byte> data, string sourceFile, int groupIndex, long groupSourceOffset,
@@ -145,10 +149,10 @@ public static class Ssx3SsbReader
             var payload = data.Slice(payloadOffset, payloadSize);
             var source = new SourceByteRange(sourceFile, groupSourceOffset, groupSourceLength,
                 $"SSB group {groupIndex}/type {type}/decompressed+0x{payloadOffset:X}", resourceIndex,
-                type is 0 or 1 ? SupportConfidence.Medium : type is 2 or 3 or 8 or 9 or 11 or 17 ? SupportConfidence.Low : SupportConfidence.Unknown, payloadOffset);
+                type is 0 or 1 ? SupportConfidence.Medium : type is 2 or 3 or 5 or 6 or 7 or 8 or 9 or 10 or 11 or 17 or 18 ? SupportConfidence.Low : SupportConfidence.Unknown, payloadOffset);
             if (type == 0)
             {
-                try { scene.Materials.Add(ParseMaterial(payload, source, trackId, resourceId)); }
+                try { scene.Materials.Add(ParseMaterial(payload, source, trackId, resourceId, groupIndex)); }
                 catch (Exception ex)
                 {
                     diagnostics.Error("SSB027", $"Material resource {resourceIndex} failed", sourceFile, source.SectionName, groupSourceOffset, ex);
@@ -157,7 +161,7 @@ public static class Ssx3SsbReader
             }
             else if (type == 1)
             {
-                try { scene.Terrain.Add(ParseTerrain(payload, source, trackId, resourceId, scene.Terrain.Count, subdivisions)); }
+                try { scene.Terrain.Add(ParseTerrain(payload, source, trackId, resourceId, groupIndex, scene.Terrain.Count, subdivisions)); }
                 catch (Exception ex) { diagnostics.Error("SSB022", $"Terrain resource {resourceIndex} failed", sourceFile, source.SectionName, groupSourceOffset, ex); }
             }
             else if (type == 2)
@@ -165,6 +169,7 @@ public static class Ssx3SsbReader
                 try
                 {
                     var model = Ssx3MdrDecoder.Decode(payload, source, trackId, resourceId);
+                    model = model with { Properties = new Dictionary<string, object?>(model.Properties) { ["GroupIndex"] = groupIndex } };
                     scene.Models.Add(names?.Find(2, trackId, resourceId) is { Length: > 0 } modelName ? model with { Name = modelName } : model);
                 }
                 catch (Exception ex)
@@ -191,6 +196,15 @@ public static class Ssx3SsbReader
                     AddUnknown(scene, payload, source, type, trackId, resourceId, payloadSize);
                 }
             }
+            else if (type == 10)
+            {
+                try { scene.Textures.Add(TagTexture(Ssx3TextureDecoder.Decode(payload, source, trackId, resourceId, TextureUsage.Lightmap), groupIndex)); }
+                catch (Exception ex)
+                {
+                    diagnostics.Error("SSB031", $"Lightmap texture {resourceIndex} failed", sourceFile, source.SectionName, groupSourceOffset, ex);
+                    AddUnknown(scene, payload, source, type, trackId, resourceId, payloadSize);
+                }
+            }
             else if (type == 11)
             {
                 try { scene.VisibilityCurtains.Add(ParseVisibilityCurtain(payload, source, trackId, resourceId, scene.VisibilityCurtains.Count)); }
@@ -211,7 +225,7 @@ public static class Ssx3SsbReader
             }
             else if (type == 3)
             {
-                try { scene.Props.Add(ParseProp(payload, source, trackId, resourceId, scene.Props.Count, names?.Find(1, trackId, resourceId))); }
+                try { scene.Props.Add(ParseProp(payload, source, trackId, resourceId, groupIndex, scene.Props.Count, names?.Find(1, trackId, resourceId))); }
                 catch (Exception ex)
                 {
                     diagnostics.Error("SSB024", $"Prop instance {resourceIndex} failed", sourceFile, source.SectionName, groupSourceOffset, ex);
@@ -237,13 +251,14 @@ public static class Ssx3SsbReader
             var type = data[position]; var payloadSize = data[position + 1] | data[position + 2] << 8 | data[position + 3] << 16;
             var trackId = data[position + 4]; var resourceId = data[position + 5] | data[position + 6] << 8 | data[position + 7] << 16;
             var payloadOffset = position + 8; if (payloadSize < 0 || payloadOffset > data.Length - payloadSize) break;
-            if (type == 9)
+            if (type is 9 or 10)
             {
                 var source = new SourceByteRange(sourceFile, groupSourceOffset, groupSourceLength,
-                    $"SSB shared group {groupIndex}/type 9/decompressed+0x{payloadOffset:X}", resourceIndex, SupportConfidence.Low, payloadOffset);
+                    $"SSB shared group {groupIndex}/type {type}/decompressed+0x{payloadOffset:X}", resourceIndex, SupportConfidence.Low, payloadOffset);
                 try
                 {
-                    scene.Textures.Add(TagTexture(Ssx3TextureDecoder.Decode(data.Slice(payloadOffset, payloadSize), source, trackId, resourceId), groupIndex));
+                    var usage = type == 10 ? TextureUsage.Lightmap : TextureUsage.Diffuse;
+                    scene.Textures.Add(TagTexture(Ssx3TextureDecoder.Decode(data.Slice(payloadOffset, payloadSize), source, trackId, resourceId, usage), groupIndex));
                 }
                 catch (Exception ex) { diagnostics.Warn("SSB026", $"Shared texture {trackId}:{resourceId} could not be decoded: {ex.Message}; header={Convert.ToHexString(data.Slice(payloadOffset, Math.Min(payloadSize, 32)))}", sourceFile, source.SectionName, groupSourceOffset); }
             }
@@ -254,10 +269,75 @@ public static class Ssx3SsbReader
     private static void AddUnknown(MountainizerScene scene, ReadOnlySpan<byte> payload, SourceByteRange source,
         int type, int trackId, int resourceId, int payloadSize)
     {
-        var preview = payload[..Math.Min(payload.Length, 64)].ToArray();
-        scene.UnknownSections.Add(new($"Type {type} / RID {resourceId}", source, type, trackId, resourceId, preview,
-            new Dictionary<string, object?> { ["ResourceType"] = type, ["TrackId"] = trackId, ["ResourceId"] = resourceId,
-                ["PayloadSize"] = payloadSize, ["PreviewHex"] = Convert.ToHexString(preview) }));
+        var preview = payload[..Math.Min(payload.Length, 128)].ToArray();
+        var properties = new Dictionary<string, object?> { ["ResourceType"] = type, ["TrackId"] = trackId, ["ResourceId"] = resourceId,
+            ["PayloadSize"] = payloadSize, ["PreviewHex"] = Convert.ToHexString(preview) };
+        var name = $"Type {type} / RID {resourceId}";
+        if (type == 4 && payload.Length >= 48)
+        {
+            properties["ParsedType"] = "SSX3 Particle Program";
+            properties["SelfReference"] = ObjectId(BinaryPrimitives.ReadUInt32LittleEndian(payload));
+            properties["Version"] = BinaryPrimitives.ReadUInt32LittleEndian(payload[4..]);
+            properties["HeaderSize"] = BinaryPrimitives.ReadUInt32LittleEndian(payload[8..]);
+            properties["ReferencedObject0"] = ObjectId(BinaryPrimitives.ReadUInt32LittleEndian(payload[32..]));
+            properties["ReferencedObject1"] = ObjectId(BinaryPrimitives.ReadUInt32LittleEndian(payload[44..]));
+            name = $"Particle Program {trackId}:{resourceId}";
+        }
+        else if (type == 5 && payload.Length == 144)
+        {
+            var position = ReadVector3(payload, 64, source);
+            var minimum = ReadVector3(payload, 104, source); var maximum = ReadVector3(payload, 116, source);
+            properties["ParsedType"] = "SSX3 Particle Emitter Instance"; properties["Position"] = Ssx3Coordinates.ToMountainizer(position);
+            properties["BoundingBoxMin"] = Ssx3Coordinates.ToMountainizer(minimum); properties["BoundingBoxMax"] = Ssx3Coordinates.ToMountainizer(maximum);
+            properties["ParticleModelReference0"] = ObjectId(BinaryPrimitives.ReadUInt32LittleEndian(payload[96..]));
+            properties["ParticleModelReference1"] = ObjectId(BinaryPrimitives.ReadUInt32LittleEndian(payload[100..]));
+            name = $"Particle Emitter {trackId}:{resourceId}";
+        }
+        else if (type == 6 && payload.Length == 112)
+        {
+            var p0 = ReadVector3(payload, 56, source); var p1 = ReadVector3(payload, 68, source); var p2 = ReadVector3(payload, 80, source);
+            var center = (p0 + p1 + p2) / 3f; var color = ReadVector4(payload, 32, source);
+            properties["ParsedType"] = "SSX3 Light"; properties["LightKind"] = BinaryPrimitives.ReadInt32LittleEndian(payload[16..]);
+            properties["Color"] = color; properties["Range"] = ReadSingle(payload, 28);
+            properties["AnchorPoints"] = $"{p0}; {p1}; {p2}";
+            if (center.LengthSquared() > 1f && IsFinite(center)) properties["Position"] = Ssx3Coordinates.ToMountainizer(center);
+            name = $"Light {trackId}:{resourceId}";
+        }
+        else if (type == 7 && payload.Length == 80)
+        {
+            var p0 = ReadVector3(payload, 28, source); var p1 = ReadVector3(payload, 40, source); var p2 = ReadVector3(payload, 52, source);
+            var center = (p0 + p1 + p2) / 3f;
+            properties["ParsedType"] = "SSX3 Halo"; properties["Color"] = ReadVector3(payload, 16, source);
+            properties["Position"] = Ssx3Coordinates.ToMountainizer(center);
+            properties["Radius"] = (Vector3.Distance(center, p0) + Vector3.Distance(center, p1) + Vector3.Distance(center, p2)) / 3f;
+            properties["AnchorPoints"] = $"{p0}; {p1}; {p2}";
+            name = $"Halo {trackId}:{resourceId}";
+        }
+        else if (type == 18 && payload.Length % 4 == 0)
+        {
+            var references = new List<string>();
+            for (var offset = 0; offset < payload.Length; offset += 4)
+            {
+                var value = BinaryPrimitives.ReadUInt32LittleEndian(payload[offset..]);
+                if (value != uint.MaxValue) references.Add(ObjectId(value));
+            }
+            properties["ParsedType"] = "SSX3 NIS Reference Table"; properties["References"] = string.Join(", ", references);
+            name = $"NIS Reference Table {trackId}:{resourceId}";
+        }
+        else if (type == 22 && payload.IsEmpty)
+        {
+            properties["ParsedType"] = "SSX3 Avalanche Animation Marker";
+            name = $"Avalanche Marker {trackId}:{resourceId}";
+        }
+        scene.UnknownSections.Add(new(name, source, type, trackId, resourceId, preview, properties));
+
+        static float ReadSingle(ReadOnlySpan<byte> bytes, int offset) =>
+            BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(bytes[offset..]));
+        static Vector3 ReadVector3(ReadOnlySpan<byte> bytes, int offset, SourceByteRange _) =>
+            new(ReadSingle(bytes, offset), ReadSingle(bytes, offset + 4), ReadSingle(bytes, offset + 8));
+        static Vector4 ReadVector4(ReadOnlySpan<byte> bytes, int offset, SourceByteRange _) =>
+            new(ReadSingle(bytes, offset), ReadSingle(bytes, offset + 4), ReadSingle(bytes, offset + 8), ReadSingle(bytes, offset + 12));
+        static string ObjectId(uint value) => $"{value & 0xff}:{value >> 8}";
     }
 
     private static TextureAsset TagTexture(TextureAsset texture, int groupIndex)
@@ -266,18 +346,18 @@ public static class Ssx3SsbReader
         return texture with { Properties = properties };
     }
 
-    private static MaterialAsset ParseMaterial(ReadOnlySpan<byte> data, SourceByteRange source, int trackId, int resourceId)
+    private static MaterialAsset ParseMaterial(ReadOnlySpan<byte> data, SourceByteRange source, int trackId, int resourceId, int groupIndex)
     {
         if (data.Length < 20) throw new Mountainizer.Core.FormatException($"Material payload is truncated ({data.Length} bytes)", source.LogicalOffset ?? 0, 20, data.Length);
         var r = new BinarySpanReader(data, source.LogicalOffset ?? 0); var values = new short[10];
         for (var i = 0; i < values.Length; i++) values[i] = r.ReadInt16Little();
         return new($"Material {trackId}:{resourceId}", source, trackId, resourceId, values[0],
             new Dictionary<string, object?> { ["ParsedType"] = "SSX3 World Material", ["TrackId"] = trackId,
-                ["ResourceId"] = resourceId, ["TextureResourceId"] = values[0],
+                ["ResourceId"] = resourceId, ["TextureResourceId"] = values[0], ["GroupIndex"] = groupIndex,
                 ["UnknownValues"] = string.Join(", ", values.Skip(1)), ["PayloadSize"] = data.Length });
     }
 
-    private static PropInstance ParseProp(ReadOnlySpan<byte> data, SourceByteRange source, int trackId, int resourceId, int index, string? resolvedName)
+    private static PropInstance ParseProp(ReadOnlySpan<byte> data, SourceByteRange source, int trackId, int resourceId, int groupIndex, int index, string? resolvedName)
     {
         if (data.Length < 160) throw new Mountainizer.Core.FormatException("Prop instance payload is truncated", source.LogicalOffset ?? 0, 160, data.Length);
         var reader = new BinarySpanReader(data, source.LogicalOffset ?? 0);
@@ -288,11 +368,13 @@ public static class Ssx3SsbReader
         var vector0 = reader.ReadVector4(); var boundsMin = reader.ReadVector3(); var boundsMax = reader.ReadVector3();
         var objectTrack = reader.ReadByte(); var objectRid = reader.ReadUInt24Little(); var unknown4 = reader.ReadUInt32Little();
         var modelTrack = reader.ReadByte(); var modelRid = reader.ReadUInt24Little();
+        var trailingWords = new uint[7]; for (var i = 0; i < trailingWords.Length; i++) trailingWords[i] = reader.ReadUInt32Little();
         var properties = new Dictionary<string, object?> { ["ParsedType"] = "SSX3 Prop Instance", ["TrackId"] = trackId,
-            ["ResourceId"] = resourceId, ["ModelTrackId"] = modelTrack, ["ModelResourceId"] = modelRid,
+            ["ResourceId"] = resourceId, ["ModelTrackId"] = modelTrack, ["ModelResourceId"] = modelRid, ["GroupIndex"] = groupIndex,
             ["ObjectTrackId"] = objectTrack, ["ObjectResourceId"] = objectRid, ["Position"] = new Vector3(transform.M41, transform.M42, transform.M43),
             ["LocalBoundsMin"] = boundsMin, ["LocalBoundsMax"] = boundsMax, ["Vector0"] = vector0,
-            ["HeaderHex"] = string.Join(" ", unknownHeader.Select(x => $"{x:X8}")), ["U4"] = $"0x{unknown4:X8}", ["PayloadSize"] = data.Length };
+            ["HeaderHex"] = string.Join(" ", unknownHeader.Select(x => $"{x:X8}")), ["U4"] = $"0x{unknown4:X8}",
+            ["TrailingHex"] = string.Join(" ", trailingWords.Select(x => $"{x:X8}")), ["PayloadSize"] = data.Length };
         return new(resolvedName is { Length: > 0 } ? resolvedName : $"Prop Instance {index:D4}", source with { OriginalIndex = index }, transform, modelTrack, (int)modelRid, properties);
     }
 
@@ -395,7 +477,7 @@ public static class Ssx3SsbReader
 
     private static Vector3 ToVector3(Vector4 value) => new(value.X, value.Y, value.Z);
 
-    private static TerrainPatch ParseTerrain(ReadOnlySpan<byte> data, SourceByteRange source, int trackId, int resourceId, int index, int subdivisions)
+    private static TerrainPatch ParseTerrain(ReadOnlySpan<byte> data, SourceByteRange source, int trackId, int resourceId, int groupIndex, int index, int subdivisions)
     {
         if (data.Length < TerrainPayloadMinimum) throw new FormatException("Terrain payload is smaller than the known structure", source.LogicalOffset ?? 0, TerrainPayloadMinimum, data.Length);
         var reader = new BinarySpanReader(data, source.LogicalOffset ?? 0);
@@ -413,10 +495,11 @@ public static class Ssx3SsbReader
         var textureRid = reader.ReadInt16Little(); var lightmapRid = reader.ReadInt16Little();
         var trailing = new short[4]; for (var i = 0; i < trailing.Length; i++) trailing[i] = reader.ReadInt16Little();
         var controlPoints = TerrainMeshBuilder.DecodeControlPoints(stored);
-        var mesh = TerrainMeshBuilder.Tessellate(controlPoints, subdivisions, uv);
+        var mesh = TerrainMeshBuilder.Tessellate(controlPoints, subdivisions, uv, lightmap);
         var properties = new Dictionary<string, object?>
         {
             ["ParsedType"] = "SSX3 World Patch", ["TrackId"] = trackId, ["ResourceId"] = resourceId,
+            ["GroupIndex"] = groupIndex,
             ["ObjectTrackId"] = objectTrack, ["ObjectResourceId"] = objectRid, ["TextureResourceId"] = textureRid,
             ["LightmapResourceId"] = lightmapRid, ["BoundingBoxMin"] = boundsMin, ["BoundingBoxMax"] = boundsMax,
             ["U0"] = $"0x{u0:X8}", ["U1"] = $"0x{u1:X8}", ["FlagsHex"] = string.Join(" ", flags.Select(x => $"{(ushort)x:X4}")),

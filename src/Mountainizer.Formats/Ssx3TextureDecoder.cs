@@ -6,7 +6,7 @@ public static class Ssx3TextureDecoder
 {
     private const int HeaderSize = 0x80;
 
-    public static TextureAsset Decode(ReadOnlySpan<byte> data, SourceByteRange source, int trackId, int resourceId)
+    public static TextureAsset Decode(ReadOnlySpan<byte> data, SourceByteRange source, int trackId, int resourceId, TextureUsage usage = TextureUsage.Diffuse)
     {
         if (data.Length < HeaderSize) throw new Mountainizer.Core.FormatException("SSH texture header is truncated", source.LogicalOffset ?? 0, HeaderSize, data.Length);
         var format = data[0];
@@ -21,9 +21,9 @@ public static class Ssx3TextureDecoder
             if (HeaderSize + byteCount > data.Length) throw new Mountainizer.Core.FormatException("SSH RGBA image is truncated", source.LogicalOffset ?? 0, HeaderSize + byteCount, data.Length);
             var rawRgba = data.Slice(HeaderSize, byteCount).ToArray();
             for (var i = 3; i < rawRgba.Length; i += 4) rawRgba[i] = (byte)Math.Min(255, rawRgba[i] * 2);
-            return new($"Texture RID {resourceId}", source, width, height, trackId, resourceId, rawRgba,
+            return new($"{usage} texture RID {resourceId}", source, width, height, trackId, resourceId, rawRgba,
                 new Dictionary<string, object?> { ["ParsedType"] = "SSX3 SSH RGBA Texture", ["Format"] = format,
-                    ["PaletteColors"] = 0, ["PaletteOffset"] = 0, ["PayloadSize"] = data.Length });
+                    ["TextureUsage"] = usage.ToString(), ["PaletteColors"] = 0, ["PaletteOffset"] = 0, ["HeaderHex"] = Convert.ToHexString(data[..HeaderSize]), ["PayloadSize"] = data.Length });
         }
         if (paletteOffset < HeaderSize || paletteOffset > data.Length - HeaderSize)
             throw new Mountainizer.Core.FormatException("SSH palette offset is invalid", source.LogicalOffset ?? 0, HeaderSize, paletteOffset);
@@ -51,9 +51,9 @@ public static class Ssx3TextureDecoder
             rgba[i * 4 + 2] = (byte)(color >> 16);
             rgba[i * 4 + 3] = (byte)(color >> 24);
         }
-        return new($"Texture RID {resourceId}", source, width, height, trackId, resourceId, rgba,
+        return new($"{usage} texture RID {resourceId}", source, width, height, trackId, resourceId, rgba,
             new Dictionary<string, object?> { ["ParsedType"] = "SSX3 SSH Texture", ["Format"] = format,
-                ["PaletteColors"] = colorCount, ["PaletteOffset"] = paletteOffset, ["PayloadSize"] = data.Length });
+                ["TextureUsage"] = usage.ToString(), ["PaletteColors"] = colorCount, ["PaletteOffset"] = paletteOffset, ["HeaderHex"] = Convert.ToHexString(data[..HeaderSize]), ["PayloadSize"] = data.Length });
     }
 
     private static uint[] DecodePalette(ReadOnlySpan<byte> bytes, int count, bool unswizzle)

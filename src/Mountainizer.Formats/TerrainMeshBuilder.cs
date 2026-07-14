@@ -30,7 +30,7 @@ public static class TerrainMeshBuilder
     }
 
     public static MeshData Tessellate(IReadOnlyList<Vector3> points, int subdivisions = 8,
-        IReadOnlyList<Vector2>? textureCorners = null)
+        IReadOnlyList<Vector2>? textureCorners = null, Vector4? lightmapRectangle = null)
     {
         if (points.Count != 16) throw new ArgumentException("A bicubic patch requires 16 control points");
         subdivisions = Math.Clamp(subdivisions, 1, 64);
@@ -38,6 +38,7 @@ public static class TerrainMeshBuilder
         var vertices = new Vector3[width * width];
         var normals = new Vector3[vertices.Length];
         var uvs = new Vector2[vertices.Length];
+        var lightmapUvs = new Vector2[vertices.Length];
         for (var y = 0; y < width; y++) for (var x = 0; x < width; x++)
         {
             var u = x / (float)subdivisions;
@@ -50,6 +51,8 @@ public static class TerrainMeshBuilder
                 ? Vector2.Lerp(Vector2.Lerp(textureCorners[0], textureCorners[1], u),
                     Vector2.Lerp(textureCorners[2], textureCorners[3], u), v)
                 : new(u, v);
+            var rectangle = lightmapRectangle ?? new Vector4(0, 0, 1, 1);
+            lightmapUvs[i] = new(rectangle.X + u * rectangle.Z, rectangle.Y + v * rectangle.W);
         }
         var indices = new uint[subdivisions * subdivisions * 6]; var cursor = 0;
         for (var y = 0; y < subdivisions; y++) for (var x = 0; x < subdivisions; x++)
@@ -65,7 +68,7 @@ public static class TerrainMeshBuilder
             normals[a] += n; normals[b] += n; normals[c] += n;
         }
         for (var i = 0; i < normals.Length; i++) normals[i] = normals[i].LengthSquared() > 0 ? Vector3.Normalize(normals[i]) : Vector3.UnitY;
-        return new(vertices, normals, uvs, indices);
+        return new(vertices, normals, uvs, indices, lightmapUvs);
     }
 
     private static float[] Basis(float t) { var s = 1f - t; return [s * s * s, 3f * s * s * t, 3f * s * t * t, t * t * t]; }

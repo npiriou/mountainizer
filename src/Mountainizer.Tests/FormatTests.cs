@@ -12,6 +12,38 @@ namespace Mountainizer.Tests;
 public sealed class FormatTests
 {
     [TestMethod]
+    [DataRow("mdl_EBC3_E_Load_0")]
+    [DataRow("mdl_EBC3_E_Unload_0")]
+    [DataRow("mdl_EBC3_bcteleport_1001")]
+    [DataRow("mdl_EBC3_fallingIceTrigger_1000")]
+    [DataRow("mdl_EBC3_challenge_1000")]
+    [DataRow("mdl_E_fenceb_r_proxy_2")]
+    [DataRow("mdl_E_NIS_Transport_0")]
+    [DataRow("mdl_EBC3_fallingpathaemitter_1001")]
+    [DataRow("mdl_EBC3_ospreySpray_1000")]
+    [DataRow("mdl_E_chimneysmoke_1000")]
+    [DataRow("mdl_EBC3_firefly_1002")]
+    [DataRow("mdl_EBC3_roadflare_1000")]
+    [DataRow("mdl_EBC3_iceImpact_1019")]
+    [DataRow("mdl_EBC3_cannonacharge_1000")]
+    public void GameplayMarkerProps_AreHiddenFromNormalModelRendering(string name)
+    {
+        var source = new SourceByteRange("fixture", 0, 1, "prop", 0, SupportConfidence.Verified);
+        var prop = new PropInstance(name, source, Matrix4x4.Identity, 0, 0, new Dictionary<string, object?>());
+        Assert.IsTrue(prop.IsNonVisualGameplayProxy);
+    }
+
+    [TestMethod]
+    [DataRow("mdl_E_fencebuv_1000")]
+    [DataRow("mdl_EBC3_E_hubsign_post_4000")]
+    public void LowPolyVisualProps_RemainVisible(string name)
+    {
+        var source = new SourceByteRange("fixture", 0, 1, "prop", 0, SupportConfidence.Verified);
+        var prop = new PropInstance(name, source, Matrix4x4.Identity, 0, 0, new Dictionary<string, object?>());
+        Assert.IsFalse(prop.IsNonVisualGameplayProxy);
+    }
+
+    [TestMethod]
     public void CourseCatalog_ContainsAllPlayableSsx3Courses()
     {
         Assert.AreEqual(17, Ssx3CourseCatalog.Courses.Count);
@@ -89,17 +121,39 @@ public sealed class FormatTests
     }
 
     [TestMethod]
+    public void TerrainConversion_MapsLightmapRectangleIntoAtlasCoordinates()
+    {
+        var points = Enumerable.Repeat(Vector3.Zero, 16).ToArray();
+        var mesh = TerrainMeshBuilder.Tessellate(points, 1, lightmapRectangle: new Vector4(0.25f, 0.5f, 0.125f, 0.25f));
+        CollectionAssert.AreEqual(new[]
+        {
+            new Vector2(0.25f, 0.5f), new Vector2(0.375f, 0.5f),
+            new Vector2(0.25f, 0.75f), new Vector2(0.375f, 0.75f)
+        }, mesh.LightmapTextureCoordinates!.ToArray());
+    }
+
+    [TestMethod]
     public void CoordinateConversion_MapsSsxZUpWorldToMountainizerYUpWorld()
     {
         Assert.AreEqual(new Vector3(1, 3, -2), Ssx3Coordinates.ToMountainizer(new Vector3(1, 2, 3)));
     }
 
     [TestMethod]
-    public void TextureCoordinates_KeepMdrSignsUprightWithoutChangingTerrainRendering()
+    public void TextureCoordinates_KeepMdrSignsUprightAndRotateTerrainRampTiles()
     {
-        var uv = new Vector2(0.25f, 0.75f);
+        var uv = new Vector2(0.2f, 0.7f);
         Assert.AreEqual(uv, TextureCoordinateConvention.ModelToOpenGl(uv));
-        Assert.AreEqual(new Vector2(0.25f, 0.25f), TextureCoordinateConvention.TerrainToOpenGl(uv));
+        Assert.AreEqual(new Vector2(0.2f, 0.3f), TextureCoordinateConvention.TerrainToOpenGl(uv));
+        Assert.AreEqual(new Vector2(0.3f, 0.8f), TextureCoordinateConvention.TerrainToOpenGl(uv, 238));
+        Assert.AreEqual(new Vector2(0.3f, 0.8f), TextureCoordinateConvention.TerrainToOpenGl(uv, 109));
+        Assert.AreEqual(TextureCoordinateConvention.TerrainToOpenGl(uv), TextureCoordinateConvention.TerrainToOpenGl(uv, 42));
+    }
+
+    [TestMethod]
+    public void TerrainRampTextureSet_CoversAllDecodedArrowTileVariants()
+    {
+        CollectionAssert.AreEquivalent(new[] { 109, 112, 114, 235, 238, 241, 378, 383, 384 },
+            Enumerable.Range(0, 512).Where(TextureCoordinateConvention.IsRampTerrainTexture).ToArray());
     }
 
     [TestMethod]
@@ -120,6 +174,32 @@ public sealed class FormatTests
     }
 
     [TestMethod]
+    public void PropClassification_ProvidesCachedCategoryAndReason()
+    {
+        var source = new SourceByteRange("fixture", 0, 1, "synthetic", 0, SupportConfidence.Verified);
+        var prop = new PropInstance("mdl_EBC3_roadflare_1000", source, Matrix4x4.Identity, 1, 1, new Dictionary<string, object?>());
+
+        var first = prop.Classification;
+        var second = prop.Classification;
+
+        Assert.AreEqual(PropRenderCategory.EffectMarker, first.Category);
+        Assert.IsFalse(first.IsVisual);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(first.Reason));
+        Assert.AreEqual(first, second);
+    }
+
+    [TestMethod]
+    public void InspectionFrustum_CullsBoundsBehindAndOutsideTheCamera()
+    {
+        var camera = new InspectionCamera();
+        camera.SetPose(new Vector3(0, 0, -10), Vector3.Zero);
+
+        Assert.IsTrue(InspectionFrustum.Contains(camera, new SceneBounds(new(-1), new(1)), 16f / 9f));
+        Assert.IsFalse(InspectionFrustum.Contains(camera, new SceneBounds(new(-1, -1, -102), new(1, 1, -100)), 16f / 9f));
+        Assert.IsFalse(InspectionFrustum.Contains(camera, new SceneBounds(new(999, -1, -1), new(1001, 1, 1)), 16f / 9f));
+    }
+
+    [TestMethod]
     public void CourseCameraPlacement_UsesNamedStartAndAimsTowardFinish()
     {
         var source = new SourceByteRange("fixture", 0, 1, "synthetic", 0, SupportConfidence.Verified);
@@ -133,14 +213,31 @@ public sealed class FormatTests
     }
 
     [TestMethod]
-    public void ObjExport_WritesVerticesAndFaces()
+    public void ObjExport_WritesVerticesFacesMaterialsAndPngTextures()
     {
         var mesh = new MeshData([Vector3.Zero, Vector3.UnitX, Vector3.UnitZ], [Vector3.UnitY, Vector3.UnitY, Vector3.UnitY], [Vector2.Zero, Vector2.UnitX, Vector2.UnitY], [0u, 1u, 2u]);
         var source = new SourceByteRange("fixture", 0, 1, "synthetic", 0, SupportConfidence.Verified);
-        var scene = new MountainizerScene { Name = "Synthetic" }; scene.Terrain.Add(new("Patch", source, [], mesh, 0, 0, 0, new Dictionary<string, object?>()));
+        var scene = new MountainizerScene { Name = "Synthetic" };
+        scene.Textures.Add(new("Terrain", source, 1, 1, 0, 5, [10, 20, 30, 255], new Dictionary<string, object?>()));
+        scene.Textures.Add(new("Model", source, 1, 1, 2, 9, [40, 50, 60, 128], new Dictionary<string, object?>()));
+        scene.Materials.Add(new("Model material", source, 2, 3, 9, new Dictionary<string, object?>()));
+        scene.Terrain.Add(new("Patch", source, [], mesh, 0, 5, 0, new Dictionary<string, object?>()));
         scene.Models.Add(new("Model", source, mesh, [new(mesh, 2, 3)], new Dictionary<string, object?> { ["TrackId"] = 1, ["ResourceId"] = 2 }));
         scene.Props.Add(new("Prop", source, Matrix4x4.CreateTranslation(10, 0, 0), 1, 2, new Dictionary<string, object?>()));
-        var path = Path.GetTempFileName(); try { ObjExporter.ExportScene(scene, path); var text = File.ReadAllText(path); StringAssert.Contains(text, "v 0 0 0"); StringAssert.Contains(text, "v 10 0 0"); StringAssert.Contains(text, "f 1/1/1 2/2/2 3/3/3"); StringAssert.Contains(text, "f 4/4/4 5/5/5 6/6/6"); } finally { File.Delete(path); }
+        var directory = Path.Combine(Path.GetTempPath(), "mountainizer-export-" + Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(directory, "scene.obj");
+        try
+        {
+            var result = ObjExporter.ExportScene(scene, path); var text = File.ReadAllText(path); var mtl = File.ReadAllText(result.MaterialPath);
+            StringAssert.Contains(text, "mtllib scene.mtl"); StringAssert.Contains(text, "usemtl texture_0_5"); StringAssert.Contains(text, "usemtl texture_2_9");
+            StringAssert.Contains(text, "v 0 0 0"); StringAssert.Contains(text, "v 10 0 0");
+            StringAssert.Contains(text, "f 1/1/1 2/2/2 3/3/3"); StringAssert.Contains(text, "f 4/4/4 5/5/5 6/6/6");
+            StringAssert.Contains(mtl, "map_Kd scene_textures/texture_0_5.png"); StringAssert.Contains(mtl, "map_Kd scene_textures/texture_2_9.png");
+            Assert.AreEqual(2, result.TextureCount);
+            foreach (var texturePath in Directory.GetFiles(result.TextureDirectory, "*.png"))
+                CollectionAssert.AreEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }, File.ReadAllBytes(texturePath)[..8]);
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true); }
     }
 
     [TestMethod]
@@ -152,6 +249,128 @@ public sealed class FormatTests
         var scene = new MountainizerScene { Name = "Picking" }; scene.Terrain.Add(patch);
         using var renderer = new SceneRenderer(); renderer.SetScene(scene);
         Assert.AreSame(patch, renderer.Pick(400, 300, 800, 600));
+    }
+
+    [TestMethod]
+    public void ViewportPicking_UsesPropTrianglesInsteadOfNearestOverlappingBounds()
+    {
+        var source = new SourceByteRange("fixture", 0, 1, "model", 0, SupportConfidence.Verified);
+        var miss = Mesh([new(-10, -10, 0), new(10, -10, 0), new(10, 1, 0)]);
+        var hit = Mesh([new(-1, -1, 0), new(1, -1, 0), new(0, 1, 0)]);
+        var scene = new MountainizerScene { Name = "Triangle picking" };
+        scene.Models.Add(new("Bounding box only", source, miss, [new(miss, 0, 0)], new Dictionary<string, object?> { ["TrackId"] = 1, ["ResourceId"] = 1 }));
+        scene.Models.Add(new("Actual hit", source, hit, [new(hit, 0, 0)], new Dictionary<string, object?> { ["TrackId"] = 1, ["ResourceId"] = 2 }));
+        var decoy = new PropInstance("Visual decoy", source, Matrix4x4.Identity, 1, 1, new Dictionary<string, object?>());
+        var target = new PropInstance("Visual target", source, Matrix4x4.CreateTranslation(0, 0, 5), 1, 2, new Dictionary<string, object?>());
+        scene.Props.Add(decoy); scene.Props.Add(target);
+        using var renderer = new SceneRenderer(); renderer.SetScene(scene); renderer.Camera.SetPose(new(0, 0, -10), Vector3.Zero);
+
+        Assert.AreSame(target, renderer.Pick(400, 300, 800, 600));
+
+        static MeshData Mesh(IReadOnlyList<Vector3> positions) => new(positions, positions.Select(_ => Vector3.UnitZ).ToArray(),
+            positions.Select(_ => Vector2.Zero).ToArray(), [0u, 1u, 2u]);
+    }
+
+    [TestMethod]
+    public void PropVisibilityFilters_ControlPickingAndHiddenInstances()
+    {
+        var source = new SourceByteRange("fixture", 0, 1, "model", 0, SupportConfidence.Verified);
+        var mesh = new MeshData([new(-1, -1, 0), new(1, -1, 0), new(0, 1, 0)], [Vector3.UnitZ, Vector3.UnitZ, Vector3.UnitZ],
+            [Vector2.Zero, Vector2.Zero, Vector2.Zero], [0u, 1u, 2u]);
+        var scene = new MountainizerScene { Name = "Visibility" };
+        scene.Models.Add(new("Model", source, mesh, [new(mesh, 0, 0)], new Dictionary<string, object?> { ["TrackId"] = 1, ["ResourceId"] = 1 }));
+        var visual = new PropInstance("mdl_TEST_wall", source, Matrix4x4.Identity, 1, 1, new Dictionary<string, object?>());
+        var collision = new PropInstance("mdl_TEST_collision", source, Matrix4x4.CreateTranslation(0, 0, 5), 1, 1, new Dictionary<string, object?>());
+        scene.Props.Add(visual); scene.Props.Add(collision);
+        using var renderer = new SceneRenderer(); renderer.SetScene(scene); renderer.Camera.SetPose(new(0, 0, -10), Vector3.Zero);
+
+        Assert.AreSame(visual, renderer.Pick(400, 300, 800, 600));
+        renderer.ShowOnlyPropCategory(PropRenderCategory.Collision);
+        Assert.AreSame(collision, renderer.Pick(400, 300, 800, 600));
+        Assert.IsTrue(renderer.HideProp(collision)); Assert.IsTrue(renderer.IsPropHidden(collision));
+        Assert.IsNull(renderer.Pick(400, 300, 800, 600));
+        renderer.ShowAllHiddenProps();
+        Assert.AreSame(collision, renderer.Pick(400, 300, 800, 600));
+        renderer.ShowAllPropCategories(); Assert.IsTrue(renderer.IsPropCategoryVisible(PropRenderCategory.Visual));
+    }
+
+    [TestMethod]
+    public void SceneRenderer_ReusesPreparedSceneWhenSameInstanceIsSetAgain()
+    {
+        var mesh = new MeshData([new(-1, 0, -1), new(1, 0, -1), new(0, 0, 1)], [Vector3.UnitY, Vector3.UnitY, Vector3.UnitY], [Vector2.Zero, Vector2.UnitX, Vector2.UnitY], [0u, 1u, 2u]);
+        var source = new SourceByteRange("fixture", 0, 1, "model", 0, SupportConfidence.Verified);
+        var scene = new MountainizerScene { Name = "Cached" };
+        scene.Terrain.Add(new("Patch", source, [], mesh, 0, 0, 0, new Dictionary<string, object?>()));
+        scene.Models.Add(new("Model", source, mesh, [new(mesh, 0, 0)], new Dictionary<string, object?> { ["TrackId"] = 1, ["ResourceId"] = 2 }));
+        var prop = new PropInstance("Prop", source, Matrix4x4.Identity, 1, 2, new Dictionary<string, object?>()); scene.Props.Add(prop);
+        using var renderer = new SceneRenderer(); renderer.SetScene(scene);
+        Assert.IsTrue(renderer.FrameProp(scene, prop)); Assert.IsTrue(renderer.IsIsolated);
+        renderer.SetScene(scene);
+        Assert.IsTrue(renderer.IsIsolated, "Setting the unchanged scene should preserve cached renderer state");
+    }
+
+    [TestMethod]
+    public void SceneTextureResolver_FindsTexturesForTerrainMaterialsModelsAndProps()
+    {
+        var mesh = new MeshData([Vector3.Zero, Vector3.UnitX, Vector3.UnitY], [Vector3.UnitZ, Vector3.UnitZ, Vector3.UnitZ], [Vector2.Zero, Vector2.UnitX, Vector2.UnitY], [0u, 1u, 2u]);
+        var source = new SourceByteRange("fixture", 0, 1, "asset", 0, SupportConfidence.Verified);
+        var scene = new MountainizerScene { Name = "Textures" };
+        var modelTexture = new TextureAsset("Model texture", source, 1, 1, 2, 9, [1, 2, 3, 255], new Dictionary<string, object?>());
+        var terrainTexture = new TextureAsset("Terrain texture", source, 1, 1, 7, 9, [4, 5, 6, 255], new Dictionary<string, object?>());
+        scene.Textures.Add(modelTexture); scene.Textures.Add(terrainTexture);
+        var material = new MaterialAsset("Material", source, 2, 3, 9, new Dictionary<string, object?>()); scene.Materials.Add(material);
+        var model = new ModelAsset("Model", source, mesh, [new(mesh, 2, 3)], new Dictionary<string, object?> { ["TrackId"] = 1, ["ResourceId"] = 4 }); scene.Models.Add(model);
+        var prop = new PropInstance("Prop", source, Matrix4x4.Identity, 1, 4, new Dictionary<string, object?>()); scene.Props.Add(prop);
+        var terrain = new TerrainPatch("Terrain", source, [], mesh, 7, 9, 0, new Dictionary<string, object?>()); scene.Terrain.Add(terrain);
+
+        var resolver = new SceneTextureResolver(scene);
+        Assert.AreSame(modelTexture, resolver.Resolve(material).Single());
+        Assert.AreSame(modelTexture, resolver.Resolve(model).Single());
+        Assert.AreSame(modelTexture, resolver.Resolve(prop).Single());
+        Assert.AreSame(terrainTexture, resolver.Resolve(terrain).Single());
+        Assert.AreSame(resolver.Resolve(prop), resolver.Resolve(prop), "Resolved previews should be cached");
+    }
+
+    [TestMethod]
+    public void SceneTextureResolver_KeepsDiffuseAndLightmapResourceIdsIndependent()
+    {
+        var source = new SourceByteRange("fixture", 0, 1, "asset", 0, SupportConfidence.Verified);
+        var scene = new MountainizerScene { Name = "Lightmaps" };
+        var diffuse = new TextureAsset("Diffuse", source, 1, 1, 255, 77, [1, 2, 3, 255],
+            new Dictionary<string, object?> { ["TextureUsage"] = TextureUsage.Diffuse.ToString(), ["GroupIndex"] = 19 });
+        var lightmap = new TextureAsset("Lightmap", source, 1, 1, 255, 77, [4, 5, 6, 255],
+            new Dictionary<string, object?> { ["TextureUsage"] = TextureUsage.Lightmap.ToString(), ["GroupIndex"] = 19 });
+        scene.Textures.Add(diffuse); scene.Textures.Add(lightmap);
+        var mesh = new MeshData([Vector3.Zero, Vector3.UnitX, Vector3.UnitY], [Vector3.UnitZ, Vector3.UnitZ, Vector3.UnitZ],
+            [Vector2.Zero, Vector2.UnitX, Vector2.UnitY], [0u, 1u, 2u]);
+        var terrain = new TerrainPatch("Terrain", source, [], mesh, 255, 77, 77,
+            new Dictionary<string, object?> { ["GroupIndex"] = 19 });
+
+        var resolved = new SceneTextureResolver(scene).Resolve(terrain);
+
+        Assert.AreEqual(2, resolved.Count);
+        Assert.AreSame(diffuse, resolved[0]);
+        Assert.AreSame(lightmap, resolved[1]);
+    }
+
+    [TestMethod]
+    public void SceneTextureResolver_UsesNearestStreamingGroupTextureBank()
+    {
+        var source = new SourceByteRange("fixture", 0, 1, "asset", 0, SupportConfidence.Verified);
+        var scene = new MountainizerScene { Name = "Texture banks" };
+        var early = new TextureAsset("Early bank", source, 1, 1, 255, 20, [1, 2, 3, 255],
+            new Dictionary<string, object?> { ["GroupIndex"] = 5 });
+        var late = new TextureAsset("Late bank", source, 1, 1, 255, 20, [4, 5, 6, 255],
+            new Dictionary<string, object?> { ["GroupIndex"] = 20 });
+        scene.Textures.Add(early); scene.Textures.Add(late);
+        var earlyMaterial = new MaterialAsset("Early material", source, 7, 1, 20,
+            new Dictionary<string, object?> { ["GroupIndex"] = 6 });
+        var lateMaterial = new MaterialAsset("Late material", source, 7, 2, 20,
+            new Dictionary<string, object?> { ["GroupIndex"] = 19 });
+        var resolver = new SceneTextureResolver(scene);
+
+        Assert.AreSame(early, resolver.Resolve(earlyMaterial).Single());
+        Assert.AreSame(late, resolver.Resolve(lateMaterial).Single());
     }
 
     [TestMethod]
