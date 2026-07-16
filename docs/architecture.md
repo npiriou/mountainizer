@@ -14,14 +14,14 @@ Playable courses are catalog entries rather than single SDB locations. The forma
 
 ## Projects
 
-- `Mountainizer.Core`: stable scene records, source byte ranges, confidence and structured diagnostics. Parsed objects do not expose parser-owned streams.
+- `Mountainizer.Core`: stable scene records for visible assets, particle/effect records, navigation paths and markers, radar routes, collision topology, structured/reference research tables, bounded bank/avalanche streams, source byte ranges, confidence and structured diagnostics. Parsed objects do not expose parser-owned streams.
 - `Mountainizer.Formats`: span reader, BIG, RefPack, SDB, SSB framing, terrain conversion and mesh generation. Every count/offset is bounded before allocation or slicing.
 - `Mountainizer.Iso`: ISO9660 read-only index/extraction, SHA-256 identification, versioned `project.json`, deterministic cache layout.
 - `Mountainizer.Rendering`: OpenTK 4.9.4 OpenGL 3.3 renderer, camera, grid, textured terrain, cached GPU instance/material batches, per-instance frustum culling, category/instance visibility controls, two-stage bounds-plus-triangle picking, wireframe and hierarchy-driven selection highlight. It consumes `Core` only.
 - `Mountainizer.Export`: independent OBJ export from `Core` meshes.
 - `Mountainizer.Cli`: automation surface using the same libraries as the GUI.
 - `Mountainizer.App`: Windows WPF inspection shell using OpenTK.GLWpfControl 4.3.6. Parsing/import run outside the UI thread and report progress.
-- `Mountainizer.Tests`: synthetic fixtures only.
+- `Mountainizer.Tests`: committed synthetic fixtures plus opt-in local regressions against a user-imported NTSC-U project.
 
 OpenTK was selected because it is maintained, MIT-licensed, provides direct OpenGL 3.3 access, and keeps rendering narrow. WPF is used for the first Windows milestone because its native file dialogs, tree/data views, accessibility and async UI integration avoid building an entire editor shell. The model and most parsers target plain `net8.0`; Linux can use a future UI host without changing them.
 

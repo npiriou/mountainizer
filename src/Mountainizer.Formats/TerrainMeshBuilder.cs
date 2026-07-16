@@ -6,6 +6,9 @@ namespace Mountainizer.Formats;
 public static class TerrainMeshBuilder
 {
     public static IReadOnlyList<Vector3> DecodeControlPoints(IReadOnlyList<Vector3> storedDifferenceCoefficients)
+        => DecodeControlPointsSsx(storedDifferenceCoefficients).Select(Ssx3Coordinates.ToMountainizer).ToArray();
+
+    public static IReadOnlyList<Vector3> DecodeControlPointsSsx(IReadOnlyList<Vector3> storedDifferenceCoefficients)
     {
         if (storedDifferenceCoefficients.Count != 16) throw new ArgumentException("A bicubic patch requires 16 coefficients");
         var coefficients = storedDifferenceCoefficients.Reverse().ToArray();
@@ -26,7 +29,7 @@ public static class TerrainMeshBuilder
             result[8 + column] = (intermediate[8 + column] + intermediate[4 + column]) / 3f + result[4 + column];
             result[12 + column] = intermediate[12 + column] + intermediate[8 + column] + intermediate[4 + column] + intermediate[column];
         }
-        return result.Select(Ssx3Coordinates.ToMountainizer).ToArray();
+        return result;
     }
 
     public static MeshData Tessellate(IReadOnlyList<Vector3> points, int subdivisions = 8,

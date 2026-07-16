@@ -19,12 +19,19 @@ public static class Ssx3MdrDecoder
         var objectTrack = header.ReadByte(); var objectRid = header.ReadUInt24Little();
         var objectCount = checked((int)header.ReadUInt32Little());
         var objectTableOffset = checked((int)header.ReadUInt32Little());
-        var unknown3 = header.ReadUInt32Little(); var unknown4 = header.ReadUInt32Little();
-        var unknown6 = header.ReadSingleLittle(); var scale = header.ReadVector3();
+        var materialTableOffset = checked((int)header.ReadUInt32Little()); var modelFlags = header.ReadUInt32Little();
+        var animationDurationSeconds = header.ReadSingleLittle(); var scale = header.ReadVector3();
         var modelDataOffset = checked((int)header.ReadUInt32Little());
         var materialCount = checked((int)header.ReadUInt32Little());
         if (objectCount is < 0 or > MaximumObjects || materialCount is < 0 or > MaximumArrays)
             throw new Mountainizer.Core.FormatException("MDR header count exceeds safety limits", source.LogicalOffset ?? 0, MaximumObjects, Math.Max(objectCount, materialCount));
+        var expectedObjectTableOffset = checked(ModelAsset.Ssx3MdrHeaderSize + materialCount * 4);
+        if (objectTrack != trackId || objectRid != resourceId || materialTableOffset != ModelAsset.Ssx3MdrMaterialTableOffset
+            || objectTableOffset != expectedObjectTableOffset || (modelFlags & ~ModelAsset.Ssx3MdrObservedFlagMask) != 0
+            || !float.IsFinite(animationDurationSeconds) || animationDurationSeconds < 0 || !IsFinitePositive(scale)
+            || modelDataOffset < expectedObjectTableOffset || (modelDataOffset & 15) != 0)
+            throw new Mountainizer.Core.FormatException("MDR header identity, offsets, flags, or animation duration are inconsistent",
+                source.LogicalOffset ?? 0, ModelAsset.Ssx3MdrHeaderSize, data.Length);
         var materials = new List<(int Track, int Resource)>(materialCount);
         for (var i = 0; i < materialCount; i++) materials.Add((header.ReadByte(), checked((int)header.ReadUInt24Little())));
 
@@ -74,12 +81,12 @@ public static class Ssx3MdrDecoder
                     var packetNormals = ReadNormals(data, checked(modelDataOffset + normalPacket.Offset), source);
                     if (vertices.Positions.Count == 0) continue;
                     var vertexBase = (uint)partPositions.Count; var objectMatrix = worldMatrices[objectIndex];
+                    var normalMatrix = SceneTransforms.NormalMatrix(objectMatrix);
                     for (var vertex = 0; vertex < vertices.Positions.Count; vertex++)
                     {
                         partPositions.Add(Vector3.Transform(vertices.Positions[vertex], objectMatrix));
                         var normal = vertex < packetNormals.Count ? packetNormals[vertex] : Vector3.UnitY;
-                        normal = Vector3.TransformNormal(normal, objectMatrix);
-                        partNormals.Add(normal.LengthSquared() > 0.000001f ? Vector3.Normalize(normal) : Vector3.UnitY);
+                        partNormals.Add(SceneTransforms.TransformNormal(normal, normalMatrix));
                         partUvs.Add(vertices.Uvs[vertex]);
                     }
                     AddTriangleStrips(partIndices, vertexBase, vertices.StripLengths, vertices.Positions);
@@ -121,7 +128,12 @@ public static class Ssx3MdrDecoder
             ["PacketPairs"] = packetPairs, ["VertexCount"] = positions.Count, ["TriangleCount"] = indices.Count / 3,
             ["SpecialPacketHeaders"] = string.Join("; ", specialPacketHeaders),
             ["SpecialPacketPreviews"] = string.Join("; ", specialPacketPreviews), ["ModelDataOffset"] = modelDataOffset,
-            ["U3"] = $"0x{unknown3:X8}", ["U4"] = $"0x{unknown4:X8}", ["U6"] = unknown6, ["PayloadSize"] = data.Length
+            ["MaterialTableOffset"] = materialTableOffset, ["ObjectTableOffset"] = objectTableOffset,
+            ["ModelFlags"] = modelFlags, ["ObservedModelFlagMask"] = $"0x{ModelAsset.Ssx3MdrObservedFlagMask:X8}",
+            ["AnimationDurationSeconds"] = animationDurationSeconds,
+            ["AnimationDurationTicks120Hz"] = checked((int)MathF.Round(animationDurationSeconds * 120f)),
+            ["RuntimeAnimationSetupFunction"] = $"0x{ModelAsset.Ssx3MdrAnimationSetupFunction:X8}",
+            ["PayloadSize"] = data.Length
         });
 
         void ResolveWorldMatrix(int index)
@@ -134,6 +146,9 @@ public static class Ssx3MdrDecoder
             matrixState[index] = 2;
         }
     }
+
+    private static bool IsFinitePositive(Vector3 value) => float.IsFinite(value.X) && float.IsFinite(value.Y) && float.IsFinite(value.Z)
+        && value.X > 0 && value.Y > 0 && value.Z > 0;
 
     private static Matrix4x4 ReadMatrix(ReadOnlySpan<byte> data, uint offset)
     {

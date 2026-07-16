@@ -1,4 +1,5 @@
 using Mountainizer.Core;
+using System.Buffers.Binary;
 
 namespace Mountainizer.Formats;
 
@@ -13,6 +14,7 @@ public static class Ssx3TextureDecoder
         var paletteOffset = ReadUInt24(data[1..]);
         var width = data[4] | data[5] << 8;
         var height = data[6] | data[7] << 8;
+        var rendererStateWord0C = BinaryPrimitives.ReadUInt32LittleEndian(data[TextureAsset.Ssx3RendererStateOffset..]);
         if (width is <= 0 or > 4096 || height is <= 0 or > 4096)
             throw new Mountainizer.Core.FormatException("SSH texture dimensions are invalid", source.LogicalOffset ?? 0, 1, width * (long)height);
         if (format == 5)
@@ -20,10 +22,17 @@ public static class Ssx3TextureDecoder
             var byteCount = checked(width * height * 4);
             if (HeaderSize + byteCount > data.Length) throw new Mountainizer.Core.FormatException("SSH RGBA image is truncated", source.LogicalOffset ?? 0, HeaderSize + byteCount, data.Length);
             var rawRgba = data.Slice(HeaderSize, byteCount).ToArray();
+            var rawAlphaMinimum = rawRgba.Where((_, index) => (index & 3) == 3).Min();
+            var rawAlphaMaximum = rawRgba.Where((_, index) => (index & 3) == 3).Max();
             for (var i = 3; i < rawRgba.Length; i += 4) rawRgba[i] = (byte)Math.Min(255, rawRgba[i] * 2);
             return new($"{usage} texture RID {resourceId}", source, width, height, trackId, resourceId, rawRgba,
                 new Dictionary<string, object?> { ["ParsedType"] = "SSX3 SSH RGBA Texture", ["Format"] = format,
-                    ["TextureUsage"] = usage.ToString(), ["PaletteColors"] = 0, ["PaletteOffset"] = 0, ["HeaderHex"] = Convert.ToHexString(data[..HeaderSize]), ["PayloadSize"] = data.Length });
+                    ["TextureUsage"] = usage.ToString(), ["PaletteColors"] = 0, ["PaletteOffset"] = 0,
+                    ["RawPs2AlphaMinimum"] = rawAlphaMinimum, ["RawPs2AlphaMaximum"] = rawAlphaMaximum,
+                    ["SerializedRendererStateWord0C"] = $"0x{rendererStateWord0C:X8}",
+                    ["RendererDispatchState"] = $"0x{rendererStateWord0C & TextureAsset.Ssx3RendererDispatchMask:X8}",
+                    ["HeaderHex"] = Convert.ToHexString(data[..HeaderSize]), ["PayloadSize"] = data.Length })
+                { SerializedRendererStateWord0C = rendererStateWord0C };
         }
         if (paletteOffset < HeaderSize || paletteOffset > data.Length - HeaderSize)
             throw new Mountainizer.Core.FormatException("SSH palette offset is invalid", source.LogicalOffset ?? 0, HeaderSize, paletteOffset);
@@ -53,7 +62,11 @@ public static class Ssx3TextureDecoder
         }
         return new($"{usage} texture RID {resourceId}", source, width, height, trackId, resourceId, rgba,
             new Dictionary<string, object?> { ["ParsedType"] = "SSX3 SSH Texture", ["Format"] = format,
-                ["TextureUsage"] = usage.ToString(), ["PaletteColors"] = colorCount, ["PaletteOffset"] = paletteOffset, ["HeaderHex"] = Convert.ToHexString(data[..HeaderSize]), ["PayloadSize"] = data.Length });
+                ["TextureUsage"] = usage.ToString(), ["PaletteColors"] = colorCount, ["PaletteOffset"] = paletteOffset,
+                ["SerializedRendererStateWord0C"] = $"0x{rendererStateWord0C:X8}",
+                ["RendererDispatchState"] = $"0x{rendererStateWord0C & TextureAsset.Ssx3RendererDispatchMask:X8}",
+                ["HeaderHex"] = Convert.ToHexString(data[..HeaderSize]), ["PayloadSize"] = data.Length })
+            { SerializedRendererStateWord0C = rendererStateWord0C };
     }
 
     private static uint[] DecodePalette(ReadOnlySpan<byte> bytes, int count, bool unswizzle)

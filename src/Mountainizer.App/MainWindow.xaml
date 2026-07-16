@@ -3,7 +3,7 @@
  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
  xmlns:gl="clr-namespace:OpenTK.Wpf;assembly=GLWpfControl"
  Title="Mountainizer — SSX 3 Level Inspector (Read-only)" Icon="Assets/mountainizer.ico" Width="1540" Height="940" MinWidth="1120" MinHeight="720"
- Background="#082F43" Foreground="#F4FBFD" FontFamily="Bahnschrift, Segoe UI" KeyDown="Window_KeyDown">
+ Background="#082F43" Foreground="#F4FBFD" FontFamily="Bahnschrift, Segoe UI" PreviewKeyDown="Window_PreviewKeyDown" KeyDown="Window_KeyDown">
  <Window.Resources>
   <Color x:Key="NavyColor">#062B3D</Color>
   <Color x:Key="DeepBlueColor">#0B4560</Color>
@@ -141,9 +141,9 @@
 
    <Border Grid.Column="2" Grid.Row="0" Background="#061119" BorderBrush="#B9ECF3" BorderThickness="2" CornerRadius="0,18,0,0">
     <Grid Margin="4">
-     <gl:GLWpfControl x:Name="GlViewport" Render="GlViewport_Render" MouseDown="Viewport_MouseDown" MouseUp="Viewport_MouseUp" MouseMove="Viewport_MouseMove" MouseWheel="Viewport_MouseWheel" Focusable="True"><gl:GLWpfControl.Settings><gl:GLWpfControlSettings MajorVersion="3" MinorVersion="3" RenderContinuously="True"/></gl:GLWpfControl.Settings></gl:GLWpfControl>
+     <gl:GLWpfControl x:Name="GlViewport" Render="GlViewport_Render" MouseDown="Viewport_MouseDown" MouseUp="Viewport_MouseUp" MouseMove="Viewport_MouseMove" MouseWheel="Viewport_MouseWheel" LostMouseCapture="Viewport_LostMouseCapture" Focusable="True"><gl:GLWpfControl.Settings><gl:GLWpfControlSettings MajorVersion="3" MinorVersion="3" RenderContinuously="True"/></gl:GLWpfControl.Settings></gl:GLWpfControl>
      <Border HorizontalAlignment="Left" VerticalAlignment="Top" Background="#D9F05A00" CornerRadius="0,0,14,0" Padding="13,6" IsHitTestVisible="False"><TextBlock Text="3D  WORLD  VIEW" Foreground="White" FontWeight="Bold" FontSize="12"/></Border>
-     <Border HorizontalAlignment="Right" VerticalAlignment="Bottom" Background="#B9062B3D" CornerRadius="12,0,0,0" Padding="11,5" IsHitTestVisible="False"><TextBlock Text="LMB SELECT  •  RMB SURFACE ORBIT  •  WHEEL ZOOM  •  F FRAME" Foreground="#BCE6EF" FontSize="10"/></Border>
+     <Border HorizontalAlignment="Right" VerticalAlignment="Bottom" Background="#B9062B3D" CornerRadius="12,0,0,0" Padding="11,5" IsHitTestVisible="False"><TextBlock Text="LMB SELECT  •  RMB FREE LOOK  •  WASD FLY  •  F FRAME" Foreground="#BCE6EF" FontSize="10"/></Border>
     </Grid>
    </Border>
    <GridSplitter Grid.Column="3" Grid.RowSpan="3" HorizontalAlignment="Stretch"/>
