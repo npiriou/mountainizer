@@ -117,8 +117,8 @@ public partial class MainWindow : Window
                 ? Ssx3SsbReader.ParseCourse(ssbPath, _sdb, selection.Course, 8, progress)
                 : Ssx3SsbReader.ParseLevel(ssbPath, area, 8, progress)); _scene = _parseResult.Scene;
             _renderer.SetScene(_scene); _renderer.FrameCourseStart(_scene, selection.Code); _project.SelectedLevel = area.Name; ProjectService.Save(_project); AddDiagnostics(_parseResult.Diagnostics);
-            BuildHierarchy(); StatusText.Text = $"{_project.ProjectName} · {_scene.Name} [{selection.Code}] · {_scene.Terrain.Count} patches · {_scene.Props.Count} props · {_scene.Splines.Count} splines";
-            Log("Information", $"Loaded {_scene.Name} [{selection.Code}]: {_scene.Terrain.Count} terrain patches, {_scene.Props.Count} prop instances, {_scene.Splines.Count} splines, {_scene.Triggers.Count} triggers, {_scene.VisibilityCurtains.Count} visibility curtains, and {_scene.Textures.Count} textures.");
+            BuildHierarchy(); StatusText.Text = $"{_project.ProjectName} · {_scene.Name} [{selection.Code}] · {_scene.Terrain.Count} patches · {_scene.Props.Count} props · {_scene.Splines.Count} splines · {_scene.NavigationPaths.Count} navigation paths";
+            Log("Information", $"Loaded {_scene.Name} [{selection.Code}]: {_scene.Terrain.Count} terrain patches, {_scene.Props.Count} prop instances, {_scene.Splines.Count} splines, {_scene.NavigationPaths.Count} navigation paths, {_scene.NavigationMarkers.Count} navigation markers, {_scene.PlanarRoutes.Count} radar routes, {_scene.Collisions.Count} collision meshes, {_scene.SphereTrees.Count} collision sphere trees, {_scene.SoundTriggerTables.Count} sound-trigger tables, {_scene.StructuredTables.Count} structured tables, {_scene.AudioBanks.Count} BNKl banks, {_scene.AvalancheAnimations.Count} avalanche streams, {_scene.ParticleModels.Count} particle models, {_scene.ParticleEmitters.Count} particle emitters, {_scene.Lights.Count} lights, {_scene.Halos.Count} halos, {_scene.NisReferenceTables.Count} NIS script-object tables, {_scene.CameraTriggerTables.Count} camera-trigger tables, {_scene.Triggers.Count} triggers, {_scene.VisibilityCurtains.Count} visibility curtains, and {_scene.Textures.Count} textures.");
         }
         catch (Exception ex) { ShowError($"Level {area.Name} could not be parsed", ex); }
         finally { _loadingLevel = false; SetBusy(false, "Ready"); }
@@ -141,14 +141,33 @@ public partial class MainWindow : Window
             AddCategory(root, $"Props - {CategoryLabel(category)}", _scene.Props.Where(x => x.Classification.Category == category).Cast<ISceneItem>(), filter);
         }
         AddCategory(root, "Splines", _scene.Splines.Cast<ISceneItem>(), filter);
+        AddCategory(root, "Navigation tables and paths", _scene.NavigationTables.Cast<ISceneItem>()
+            .Concat(_scene.NavigationPaths)
+            .Concat(_scene.NavigationMarkers).Concat(_scene.UnknownSections.Where(x => x.ResourceType == 14)), filter);
+        AddCategory(root, "Collision meshes", _scene.Collisions.Cast<ISceneItem>()
+            .Concat(_scene.SphereTrees).Concat(_scene.UnknownSections.Where(x => x.ResourceType == 12)), filter);
+        AddCategory(root, "Sound trigger tables", _scene.SoundTriggerTables.Cast<ISceneItem>()
+            .Concat(_scene.UnknownSections.Where(x => x.ResourceType == 13)), filter);
+        AddCategory(root, "Radar routes", _scene.PlanarRoutes.Cast<ISceneItem>()
+            .Concat(_scene.UnknownSections.Where(x => x.ResourceType == 21)), filter);
+        AddCategory(root, "Structured Type-15/16 tables", _scene.StructuredTables.Cast<ISceneItem>()
+            .Concat(_scene.UnknownSections.Where(x => x.ResourceType is 15 or 16)), filter);
+        AddCategory(root, "BNKl audio banks", _scene.AudioBanks.Cast<ISceneItem>()
+            .Concat(_scene.UnknownSections.Where(x => x.ResourceType == 20)), filter);
+        AddCategory(root, "Camera Trigger Tables", _scene.CameraTriggerTables.Cast<ISceneItem>(), filter);
         AddCategory(root, "Triggers", _scene.Triggers.Cast<ISceneItem>(), filter); AddCategory(root, "Visibility", _scene.VisibilityCurtains.Cast<ISceneItem>(), filter);
         AddCategory(root, "Models", _scene.Models.Cast<ISceneItem>(), filter); AddCategory(root, "Materials", _scene.Materials.Cast<ISceneItem>(), filter); AddCategory(root, "Textures", _scene.Textures.Cast<ISceneItem>(), filter);
-        AddCategory(root, "Particle programs", _scene.UnknownSections.Where(x => x.ResourceType == 4).Cast<ISceneItem>(), filter);
-        AddCategory(root, "Particle emitters", _scene.UnknownSections.Where(x => x.ResourceType == 5).Cast<ISceneItem>(), filter);
-        AddCategory(root, "Lights", _scene.UnknownSections.Where(x => x.ResourceType == 6).Cast<ISceneItem>(), filter);
-        AddCategory(root, "Halos", _scene.UnknownSections.Where(x => x.ResourceType == 7).Cast<ISceneItem>(), filter);
-        AddCategory(root, "NIS / avalanche tables", _scene.UnknownSections.Where(x => x.ResourceType is 18 or 22).Cast<ISceneItem>(), filter);
-        AddCategory(root, "Unknown Sections", _scene.UnknownSections.Where(x => x.ResourceType is not (4 or 5 or 6 or 7 or 18 or 22)).Cast<ISceneItem>(), filter, 500);
+        AddCategory(root, "Particle models", _scene.ParticleModels.Cast<ISceneItem>()
+            .Concat(_scene.UnknownSections.Where(x => x.ResourceType == 4)), filter);
+        AddCategory(root, "Particle emitters", _scene.ParticleEmitters.Cast<ISceneItem>()
+            .Concat(_scene.UnknownSections.Where(x => x.ResourceType == 5)), filter);
+        AddCategory(root, "Lights", _scene.Lights.Cast<ISceneItem>()
+            .Concat(_scene.UnknownSections.Where(x => x.ResourceType == 6)), filter);
+        AddCategory(root, "Halos", _scene.Halos.Cast<ISceneItem>()
+            .Concat(_scene.UnknownSections.Where(x => x.ResourceType == 7)), filter);
+        AddCategory(root, "NIS script objects / avalanche", _scene.AvalancheAnimations.Cast<ISceneItem>()
+            .Concat(_scene.NisReferenceTables).Concat(_scene.UnknownSections.Where(x => x.ResourceType is 18 or 22)), filter);
+        AddCategory(root, "Unknown Sections", _scene.UnknownSections.Where(x => x.ResourceType is not (4 or 5 or 6 or 7 or 12 or 13 or 14 or 15 or 16 or 18 or 20 or 21 or 22)).Cast<ISceneItem>(), filter, 500);
         root.IsExpanded = true; SceneTree.Items.Add(root);
         AssetList.ItemsSource = _scene.Models.Select(x => new AssetEntry($"Model  •  {x.Name}", x))
             .Concat(_scene.Materials.Select(x => new AssetEntry($"Material  •  {x.Name}", x)))
@@ -221,13 +240,18 @@ public partial class MainWindow : Window
     }
     private void UpdateNavigation(TimeSpan delta)
     {
-        if (!GlViewport.IsKeyboardFocusWithin && _dragButton is null) return;
+        var keyboardRotating = Keyboard.IsKeyDown(Key.Left) || Keyboard.IsKeyDown(Key.Right)
+            || Keyboard.IsKeyDown(Key.Up) || Keyboard.IsKeyDown(Key.Down);
+        if (!GlViewport.IsKeyboardFocusWithin && _dragButton is null && !keyboardRotating) return;
         var right = (Keyboard.IsKeyDown(Key.D) ? 1f : 0f) - (Keyboard.IsKeyDown(Key.A) ? 1f : 0f);
         var up = (Keyboard.IsKeyDown(Key.E) ? 1f : 0f) - (Keyboard.IsKeyDown(Key.Q) ? 1f : 0f);
         var forward = (Keyboard.IsKeyDown(Key.W) ? 1f : 0f) - (Keyboard.IsKeyDown(Key.S) ? 1f : 0f);
-        if (right == 0 && up == 0 && forward == 0) return;
+        var yaw = (Keyboard.IsKeyDown(Key.Right) ? 1f : 0f) - (Keyboard.IsKeyDown(Key.Left) ? 1f : 0f);
+        var pitch = (Keyboard.IsKeyDown(Key.Up) ? 1f : 0f) - (Keyboard.IsKeyDown(Key.Down) ? 1f : 0f);
+        var elapsedSeconds = (float)Math.Clamp(delta.TotalSeconds, 0, 0.1);
         var fast = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? 4f : 1f;
-        _renderer.Camera.Fly(right, up, forward, (float)delta.TotalSeconds, fast);
+        if (right != 0 || up != 0 || forward != 0) _renderer.Camera.Fly(right, up, forward, elapsedSeconds, fast);
+        if (yaw != 0 || pitch != 0) _renderer.Camera.LookRadians(yaw * elapsedSeconds, pitch * elapsedSeconds);
     }
     private void Viewport_MouseDown(object sender, MouseButtonEventArgs e)
     {
@@ -237,22 +261,34 @@ public partial class MainWindow : Window
             var item = _renderer.Pick((float)position.X, (float)position.Y, (int)GlViewport.ActualWidth, (int)GlViewport.ActualHeight);
             SelectItem(item); if (item is not null) SelectTreeItem(item); e.Handled = true; return;
         }
-        if (e.ChangedButton == MouseButton.Right)
-            _renderer.TrySetOrbitPivot((float)position.X, (float)position.Y, (int)GlViewport.ActualWidth, (int)GlViewport.ActualHeight);
+        if (e.ChangedButton is not (MouseButton.Right or MouseButton.Middle)) return;
         _dragButton = e.ChangedButton; _lastMouse = position; GlViewport.CaptureMouse();
+        if (_dragButton == MouseButton.Right) GlViewport.Cursor = Cursors.None;
     }
-    private void Viewport_MouseUp(object sender, MouseButtonEventArgs e) { _dragButton = null; GlViewport.ReleaseMouseCapture(); }
-    private void Viewport_MouseMove(object sender, MouseEventArgs e) { if (_dragButton is null) return; var now = e.GetPosition(GlViewport); var dx = (float)(now.X - _lastMouse.X); var dy = (float)(now.Y - _lastMouse.Y); if (_dragButton == MouseButton.Right) _renderer.Camera.Rotate(dx, dy); else if (_dragButton == MouseButton.Middle) _renderer.Camera.Pan(dx, dy, (float)GlViewport.ActualHeight); _lastMouse = now; }
+    private void Viewport_MouseUp(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != _dragButton) return;
+        _dragButton = null; GlViewport.Cursor = Cursors.Arrow; GlViewport.ReleaseMouseCapture();
+    }
+    private void Viewport_LostMouseCapture(object sender, MouseEventArgs e)
+    {
+        _dragButton = null; GlViewport.Cursor = Cursors.Arrow;
+    }
+    private void Viewport_MouseMove(object sender, MouseEventArgs e) { if (_dragButton is null) return; var now = e.GetPosition(GlViewport); var dx = (float)(now.X - _lastMouse.X); var dy = (float)(now.Y - _lastMouse.Y); if (_dragButton == MouseButton.Right) _renderer.Camera.Look(dx, dy); else if (_dragButton == MouseButton.Middle) _renderer.Camera.Pan(dx, dy, (float)GlViewport.ActualHeight); _lastMouse = now; }
     private void Viewport_MouseWheel(object sender, MouseWheelEventArgs e)
     {
         var speed = Keyboard.Modifiers.HasFlag(ModifierKeys.Control) ? 0.3f : Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? 2f : 1f;
-        _renderer.Camera.Zoom(e.Delta / 120f, speed);
+        _renderer.Camera.Dolly(e.Delta / 120f, speed);
         e.Handled = true;
     }
     private void Window_KeyDown(object sender, KeyEventArgs e)
     {
         if (e.IsRepeat) return;
         switch (e.Key) { case Key.F: if (_renderer.IsIsolated || _selectedItem is null || !_renderer.FrameItem(_selectedItem)) FrameScene(); e.Handled = true; break; case Key.Escape: ClearSelection(); e.Handled = true; break; }
+    }
+    private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key is Key.Left or Key.Right or Key.Up or Key.Down) e.Handled = true;
     }
     private void ClearSelection()
     {
@@ -303,7 +339,7 @@ public partial class MainWindow : Window
     private void Visibility_Click(object sender, RoutedEventArgs e) => _renderer.ShowVisibilityCurtains = ((MenuItem)sender).IsChecked;
     private void ExportObj_Click(object sender, RoutedEventArgs e) { if (_scene is null) return; var dialog = new SaveFileDialog { Filter = "Wavefront OBJ (*.obj)|*.obj", FileName = _scene.Name + ".obj" }; if (dialog.ShowDialog(this) == true) { var result = ObjExporter.ExportScene(_scene, dialog.FileName); Log("Information", $"Exported textured scene to {result.ObjPath}, {result.MaterialPath}, and {result.TextureCount} PNG texture(s) in {result.TextureDirectory}"); } }
     private void ExportDiagnostics_Click(object sender, RoutedEventArgs e) { var dialog = new SaveFileDialog { Filter = "JSON (*.json)|*.json", FileName = "mountainizer-diagnostics.json" }; if (dialog.ShowDialog(this) == true) File.WriteAllText(dialog.FileName, System.Text.Json.JsonSerializer.Serialize(_diagnostics, DiagnosticBag.JsonOptions)); }
-    private void Controls_Click(object sender, RoutedEventArgs e) => MessageBox.Show(this, "Left mouse: select visible terrain or prop\nRight mouse: orbit around the surface under the cursor\nMiddle mouse: pan\nWheel: zoom without changing view direction\nCtrl + wheel: precision zoom\nShift + wheel: fast zoom\nWASD + Q/E: continuous fly\nShift: faster\nF: frame selected item (or leave prop isolation)\nEscape: clear selection", "Viewport controls");
+    private void Controls_Click(object sender, RoutedEventArgs e) => MessageBox.Show(this, "Left mouse: select visible terrain or prop\nRight mouse: free look\nMiddle mouse: pan\nWheel: dolly forward or backward\nCtrl + wheel: precision dolly\nShift + wheel: fast dolly\nWASD + Q/E: move in camera space\nArrow keys: rotate the camera\nShift + movement: 4x faster\nF: frame selected item (or leave prop isolation)\nEscape: clear selection", "Viewport controls");
     private void Exit_Click(object sender, RoutedEventArgs e) => Close();
     private void AddDiagnostics(DiagnosticBag bag) { foreach (var item in bag.Items) _diagnostics.Add(item); }
     private void SetBusy(bool busy, string text) { ProgressText.Text = text; LevelPicker.IsEnabled = !busy; }

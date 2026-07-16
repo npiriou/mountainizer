@@ -51,26 +51,36 @@ public sealed class SceneTextureResolver
                 break;
             case TerrainPatch terrain:
                 AddTexture(destination, terrain.TrackId, terrain.TextureResourceId, TextureUsage.Diffuse, GroupOf(terrain));
+                if (terrain.SecondaryTextureResourceId >= 0)
+                    AddTexture(destination, terrain.TrackId, terrain.SecondaryTextureResourceId, TextureUsage.Diffuse, GroupOf(terrain));
                 if (terrain.LightmapResourceId >= 0)
                     AddTexture(destination, 255, terrain.LightmapResourceId, TextureUsage.Lightmap, GroupOf(terrain));
                 break;
             case MaterialAsset material:
                 AddTexture(destination, material.TrackId, material.TextureResourceId, TextureUsage.Diffuse, GroupOf(material));
+                for (var i = 0; i < material.TextureFrameResourceIds.Count; i++)
+                    AddTexture(destination, material.TrackId, material.TextureFrameResourceIds[i], TextureUsage.Diffuse, GroupOf(material));
                 break;
             case ModelAsset model:
-                for (var i = 0; i < model.Submeshes.Count; i++)
-                {
-                    var submesh = model.Submeshes[i];
-                    if (_materials.TryGetValue(Key(submesh.MaterialTrackId, submesh.MaterialResourceId), out var submeshMaterial)
-                        || _materialsByResource.TryGetValue(submesh.MaterialResourceId, out submeshMaterial))
-                        AddTexture(destination, submeshMaterial.TrackId, submeshMaterial.TextureResourceId, TextureUsage.Diffuse,
-                            GroupOf(submeshMaterial) ?? GroupOf(model));
-                }
+                ResolveModel(model, destination, GroupOf(model));
                 break;
             case PropInstance prop when _models.TryGetValue(Key(prop.ModelTrackId, prop.ModelResourceId), out var propModel):
-                var modelTextures = Resolve(propModel);
-                for (var i = 0; i < modelTextures.Count; i++) AddUnique(destination, modelTextures[i]);
+                var textureSubChunk = prop.Properties.TryGetValue("TextureSubChunkId", out var subChunkValue)
+                    && subChunkValue is not null ? Convert.ToInt32(subChunkValue) : GroupOf(propModel);
+                ResolveModel(propModel, destination, textureSubChunk);
                 break;
+        }
+    }
+
+    private void ResolveModel(ModelAsset model, List<TextureAsset> destination, int? referenceGroup)
+    {
+        for (var i = 0; i < model.Submeshes.Count; i++)
+        {
+            var submesh = model.Submeshes[i];
+            if (_materials.TryGetValue(Key(submesh.MaterialTrackId, submesh.MaterialResourceId), out var material)
+                || _materialsByResource.TryGetValue(submesh.MaterialResourceId, out material))
+                AddTexture(destination, material.TrackId, material.TextureResourceId, TextureUsage.Diffuse,
+                    referenceGroup ?? GroupOf(material) ?? GroupOf(model));
         }
     }
 

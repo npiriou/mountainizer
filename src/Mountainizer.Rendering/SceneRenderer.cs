@@ -29,7 +29,8 @@ public sealed class InspectionCamera
     public float Distance { get; private set; } = 50_000;
     public float Yaw { get; private set; } = -0.8f;
     public float Pitch { get; private set; } = -0.65f;
-    public float MoveSpeed => Math.Max(250, Math.Max(Distance * 0.3f, _navigationScale * 0.5f));
+    private float ReferenceSpeed => Math.Max(1_000, _navigationScale * 2f);
+    public float MoveSpeed => ReferenceSpeed * 4f;
 
     public Vector3 Position => Target - Forward * Distance;
     public Vector3 Forward => Vector3.Normalize(new(MathF.Cos(Pitch) * MathF.Cos(Yaw), MathF.Sin(Pitch), MathF.Cos(Pitch) * MathF.Sin(Yaw)));
@@ -64,16 +65,27 @@ public sealed class InspectionCamera
         Pitch = Math.Clamp(MathF.Asin(direction.Y), -1.52f, 1.52f);
         Yaw = MathF.Atan2(direction.Z, direction.X);
     }
-    public void Rotate(float dx, float dy) { Yaw += dx * 0.0022f; Pitch = Math.Clamp(Pitch - dy * 0.0022f, -1.52f, 1.52f); }
+    public void Look(float dx, float dy)
+    {
+        const float radiansPerPixel = 1f / 300f;
+        LookRadians(dx * radiansPerPixel, -dy * radiansPerPixel);
+    }
+    public void LookRadians(float yaw, float pitch)
+    {
+        var position = Position;
+        Yaw += yaw;
+        Pitch = Math.Clamp(Pitch + pitch, -1.52f, 1.52f);
+        Target = position + Forward * Distance;
+    }
     public void Pan(float dx, float dy, float viewportHeight)
     {
         var unitsPerPixel = 2f * Distance * MathF.Tan(FieldOfView * 0.5f) / Math.Max(viewportHeight, 1);
         Target += (-Right * dx + Up * dy) * unitsPerPixel;
     }
-    public void Zoom(float wheelSteps, float speed = 1) => Distance = Math.Max(0.25f, Distance * MathF.Exp(-wheelSteps * 0.08f * speed));
+    public void Dolly(float wheelSteps, float speed = 1) => Target += Forward * (ReferenceSpeed * 0.6f * wheelSteps * speed);
     public void Fly(float right, float up, float forward, float elapsedSeconds, float multiplier = 1)
     {
-        var direction = Right * right + Vector3.UnitY * up + Forward * forward;
+        var direction = Right * right + Up * up + Forward * forward;
         if (direction.LengthSquared() > 1) direction = Vector3.Normalize(direction);
         Target += direction * MoveSpeed * Math.Clamp(elapsedSeconds, 0, 0.1f) * multiplier;
     }
@@ -186,6 +198,7 @@ public static class CourseCameraPlacement
         if (TryTerrainHeight(scene, position, out var cameraGround)) position.Y = cameraGround + cameraHeight;
         else position.Y = start.Y + cameraHeight;
         var target = position + forward * lookAhead - Vector3.UnitY * Math.Min(cameraHeight * 0.45f, lookAhead * 0.08f);
+        if (TryTerrainTarget(scene, position, forward, lookAhead, out var terrainTarget)) target = terrainTarget;
         pose = new(position, target, usedStartGate, referenceScale);
         return true;
     }
@@ -228,6 +241,26 @@ public static class CourseCameraPlacement
             var dx = point.X - position.X; var dz = point.Z - position.Z; var distance = dx * dx + dz * dz;
             if (distance >= bestDistance) continue;
             bestDistance = distance; height = point.Y; found = true;
+        }
+        return found;
+    }
+    private static bool TryTerrainTarget(MountainizerScene scene, Vector3 position, Vector3 forward, float desiredDistance, out Vector3 target)
+    {
+        var bestScore = float.PositiveInfinity; target = default; var found = false;
+        foreach (var patch in scene.Terrain)
+        for (var triangle = 0; triangle + 2 < patch.Mesh.Indices.Count; triangle += 3)
+        {
+            var ia = patch.Mesh.Indices[triangle]; var ib = patch.Mesh.Indices[triangle + 1]; var ic = patch.Mesh.Indices[triangle + 2];
+            if (ia >= patch.Mesh.Positions.Count || ib >= patch.Mesh.Positions.Count || ic >= patch.Mesh.Positions.Count) continue;
+            var point = (patch.Mesh.Positions[(int)ia] + patch.Mesh.Positions[(int)ib] + patch.Mesh.Positions[(int)ic]) / 3f;
+            if (!IsFinite(point)) continue;
+            var offset = Horizontal(point - position); var distanceAlong = Vector3.Dot(offset, forward);
+            if (distanceAlong < 1000 || distanceAlong > desiredDistance * 2.5f) continue;
+            var lateral = offset - forward * distanceAlong;
+            var forwardError = distanceAlong - desiredDistance;
+            var score = forwardError * forwardError + lateral.LengthSquared() * 4f;
+            if (score >= bestScore) continue;
+            bestScore = score; target = point; found = true;
         }
         return found;
     }
@@ -307,9 +340,9 @@ public sealed class SceneRenderer : IDisposable
     public bool ShowGrid { get; set; } = true;
     public bool ShowTerrain { get; set; } = true;
     // Type-10 atlases are decoded and inspectable, but their original PS2 blend
-    // equation/channel semantics are not established. Keep them out of the normal
-    // viewport until applying them no longer creates colored patch boundaries.
-    public bool ShowLightmaps { get; set; }
+    // equation/channel semantics are not established. V1 deliberately keeps the
+    // experimental blend out of the supported viewport path.
+    private const bool ShowLightmaps = false;
     public bool ShowProps { get => IsPropCategoryVisible(PropRenderCategory.Visual); set => SetPropCategoryVisible(PropRenderCategory.Visual, value); }
     public bool ShowGameplayProxies
     {
@@ -413,7 +446,7 @@ public sealed class SceneRenderer : IDisposable
             return InspectionPicking.RayIntersectsMesh(localOrigin, localDirection, target.Mesh, out hitDistance);
         }
         bool IsVisible(ISceneItem item) => item switch { TerrainPatch => ShowTerrain, PropInstance prop => IsPropVisible(prop),
-            Spline => ShowSplines, TriggerVolume => ShowTriggers, VisibilityCurtain => ShowVisibilityCurtains, _ => false };
+            Spline => ShowSplines, NavigationPath => ShowSplines, TriggerVolume => ShowTriggers, VisibilityCurtain => ShowVisibilityCurtains, _ => false };
     }
     public bool FrameProp(MountainizerScene scene, PropInstance prop)
     {
@@ -632,6 +665,11 @@ public sealed class SceneRenderer : IDisposable
             var spline = scene.Splines[splineIndex];
             for (var i = 1; i < spline.Points.Count; i++) AddLine(vertices, spline.Points[i - 1].Position, spline.Points[i].Position);
         }
+        for (var pathIndex = 0; pathIndex < scene.NavigationPaths.Count; pathIndex++)
+        {
+            var path = scene.NavigationPaths[pathIndex];
+            for (var i = 1; i < path.Points.Count; i++) AddLine(vertices, path.Points[i - 1], path.Points[i]);
+        }
         _splineVertexCount = vertices.Count / 3;
         for (var curtainIndex = 0; curtainIndex < scene.VisibilityCurtains.Count; curtainIndex++)
         {
@@ -835,6 +873,10 @@ public sealed class SceneRenderer : IDisposable
         {
             var spline = scene.Splines[i]; Add(spline, BoundsFromSpline(spline));
         }
+        for (var i = 0; i < scene.NavigationPaths.Count; i++)
+        {
+            var path = scene.NavigationPaths[i]; Add(path, SceneBounds.FromPoints(path.Points));
+        }
         for (var i = 0; i < scene.Triggers.Count; i++)
         {
             var trigger = scene.Triggers[i]; Add(trigger, new(trigger.Minimum, trigger.Maximum));
@@ -1014,7 +1056,7 @@ public sealed class SceneRenderer : IDisposable
     layout(location=0) in vec3 aPosition; layout(location=1) in vec3 aNormal; layout(location=2) in vec2 aTexCoord; layout(location=7) in vec2 aLightmapTexCoord;
     layout(location=3) in vec4 iModel0; layout(location=4) in vec4 iModel1; layout(location=5) in vec4 iModel2; layout(location=6) in vec4 iModel3;
     uniform mat4 uView; uniform mat4 uProjection; uniform mat4 uModel; uniform int uInstanced; out vec3 vNormal; out vec2 vTexCoord; out vec2 vLightmapTexCoord;
-    void main(){ mat4 model=uInstanced!=0?mat4(iModel0,iModel1,iModel2,iModel3):uModel; vNormal=mat3(model)*aNormal; vTexCoord=aTexCoord; vLightmapTexCoord=aLightmapTexCoord; gl_Position=uProjection*uView*model*vec4(aPosition,1.0); }
+    void main(){ mat4 model=uInstanced!=0?mat4(iModel0,iModel1,iModel2,iModel3):uModel; vNormal=mat3(transpose(inverse(model)))*aNormal; vTexCoord=aTexCoord; vLightmapTexCoord=aLightmapTexCoord; gl_Position=uProjection*uView*model*vec4(aPosition,1.0); }
 """;
     private const string FragmentShader = """
 #version 330 core

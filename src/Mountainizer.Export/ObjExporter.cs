@@ -112,10 +112,10 @@ public static class ObjExporter
         writer.WriteLine($"usemtl {materialName}");
         foreach (var p in mesh.Positions.Select(x => Vector3.Transform(x, transform))) writer.WriteLine(FormattableString.Invariant($"v {p.X:R} {p.Y:R} {p.Z:R}"));
         foreach (var uv in mesh.TextureCoordinates) writer.WriteLine(FormattableString.Invariant($"vt {uv.X:R} {1f - uv.Y:R}"));
+        var normalMatrix = SceneTransforms.NormalMatrix(transform);
         foreach (var sourceNormal in mesh.Normals)
         {
-            var transformed = Vector3.TransformNormal(sourceNormal, transform);
-            var n = transformed.LengthSquared() > 0.000001f ? Vector3.Normalize(transformed) : Vector3.UnitY;
+            var n = SceneTransforms.TransformNormal(sourceNormal, normalMatrix);
             writer.WriteLine(FormattableString.Invariant($"vn {n.X:R} {n.Y:R} {n.Z:R}"));
         }
         for (var i = 0; i + 2 < mesh.Indices.Count; i += 3)
