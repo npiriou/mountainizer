@@ -13,6 +13,9 @@ publish/
 # Copyrighted or user-local game data — never commit
 *.iso
 *.ISO
+!src/Mountainizer.Iso/
+!src/Mountainizer.Iso/*.cs
+!src/Mountainizer.Iso/*.csproj
 *.bin
 *.cue
 *.zip
